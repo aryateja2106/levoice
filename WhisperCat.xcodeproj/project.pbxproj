@@ -17,6 +17,8 @@
 		D8B2BE4ACA5F0EE1E39B8AC1 /* WhisperTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 357D04C5473A25ACAB0EE2AC /* WhisperTranscriber.swift */; };
 		AA3333333333333333333333 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1111111111111111111111 /* AudioRecorder.swift */; };
 		AA4444444444444444444444 /* AudioRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* AudioRecorderTests.swift */; };
+		BB1111111111111111111111 /* HotkeyMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* HotkeyMonitor.swift */; };
+		BB3333333333333333333333 /* HotkeyMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4444444444444444444444 /* HotkeyMonitorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +45,8 @@
 		FAE30E5218AB682D709B805F /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		AA1111111111111111111111 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 		AA2222222222222222222222 /* AudioRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderTests.swift; sourceTree = "<group>"; };
+		BB2222222222222222222222 /* HotkeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMonitor.swift; sourceTree = "<group>"; };
+		BB4444444444444444444444 /* HotkeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMonitorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +78,14 @@
 			path = Audio;
 			sourceTree = "<group>";
 		};
+		BB5555555555555555555555 /* Input */ = {
+			isa = PBXGroup;
+			children = (
+				BB2222222222222222222222 /* HotkeyMonitor.swift */,
+			);
+			path = Input;
+			sourceTree = "<group>";
+		};
 		5EDB93F357F2F16253C13B6D /* Transcription */ = {
 			isa = PBXGroup;
 			children = (
@@ -100,6 +112,7 @@
 				61E364B70F7CF60FF05A54F3 /* WhisperCat.entitlements */,
 				91D06020DF82CB364C76216C /* WhisperCatApp.swift */,
 				AA5555555555555555555555 /* Audio */,
+				BB5555555555555555555555 /* Input */,
 				5EDB93F357F2F16253C13B6D /* Transcription */,
 				D322064D82007C428172CBD5 /* UI */,
 			);
@@ -110,6 +123,7 @@
 			isa = PBXGroup;
 			children = (
 				AA2222222222222222222222 /* AudioRecorderTests.swift */,
+				BB4444444444444444444444 /* HotkeyMonitorTests.swift */,
 				C6448B6A94297E00FBE83DFF /* WhisperCatTests.swift */,
 				2982CD3A002B866B0EFF8F0E /* WhisperTranscriberTests.swift */,
 			);
@@ -202,6 +216,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA4444444444444444444444 /* AudioRecorderTests.swift in Sources */,
+				BB3333333333333333333333 /* HotkeyMonitorTests.swift in Sources */,
 				D1CC1FC4E9069619C2D1A99E /* WhisperCatTests.swift in Sources */,
 				159DC21395BBE127DCE45CBE /* WhisperTranscriberTests.swift in Sources */,
 			);
@@ -213,6 +228,7 @@
 			files = (
 				2836F391A17A7520A05DF5EE /* AppState.swift in Sources */,
 				AA3333333333333333333333 /* AudioRecorder.swift in Sources */,
+				BB1111111111111111111111 /* HotkeyMonitor.swift in Sources */,
 				8CBD27433A339C8523112A74 /* MenuBarView.swift in Sources */,
 				BFC328A5EC5C27190383C083 /* ModelManager.swift in Sources */,
 				58DF2F200630FFB7E2F2C6D9 /* WhisperCatApp.swift in Sources */,
