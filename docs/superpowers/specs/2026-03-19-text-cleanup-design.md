@@ -41,8 +41,10 @@ Performs the actual text cleanup using the loaded model.
 ### System Prompt
 
 ```
-Clean up this speech transcription. Remove filler words (um, uh, like, you know, so, basically, literally, right, I mean). If the speaker corrects themselves (e.g. "actually let's say X", "no wait X", "I mean X", "sorry, X"), keep only the final correction. Do not change the meaning, tone, or add any words. Output only the cleaned text, nothing else.
+Clean up this speech transcription. Remove filler words (um, uh, like, you know, so, basically, literally, right, I mean). If the speaker corrects themselves (e.g. "actually let's say X", "no wait X", "I mean X", "sorry, X"), keep only the final correction. Do not change the meaning, tone, or add any words. If the text is already clean or very short, return it unchanged. Output only the cleaned text, nothing else.
 ```
+
+**Generation limits:** Max output tokens = 2x input token count. Timeout = 3 seconds — if exceeded, return original text.
 
 ## UI Changes
 
@@ -58,8 +60,9 @@ Add to menu bar dropdown:
 - Add `cleanupEnabled: Bool` property (default `true`), persisted via `@AppStorage("cleanupEnabled")`
 - Add `textCleanupManager: TextCleanupManager`
 - Add `textCleaner: TextCleaner`
-- In `initialize()`: if cleanup enabled, load the cleanup model after WhisperKit model loads
-- In `stopRecordingAndTranscribe()`: after WhisperKit transcription, if cleanup enabled and model ready, run text through TextCleaner before pasting
+- In `initialize()`: load WhisperKit model first, then start hotkey monitor so the app is usable ASAP. Load the cleanup model in parallel/after — don't block the "Ready" state on it. App should be usable for transcription while cleanup model is still loading.
+- Cleanup model loading is tracked separately from main `AppStatus` — `TextCleanupManager` has its own `state` property. Menu bar shows cleanup loading status as a secondary line, not by changing the main status.
+- In `stopRecordingAndTranscribe()`: after WhisperKit transcription, if cleanup enabled and model ready, run text through TextCleaner before pasting. If cleanup is enabled but model is still loading, paste uncleaned text.
 
 ### MenuBarView Changes
 
