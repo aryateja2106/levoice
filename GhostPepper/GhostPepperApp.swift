@@ -1,9 +1,13 @@
 import SwiftUI
+import Combine
 
 @main
 struct GhostPepperApp: App {
     @StateObject private var appState = AppState()
     @State private var hasInitialized = false
+    @State private var pulseBright = true
+
+    private let pulseTimer = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
 
     var body: some Scene {
         MenuBarExtra {
@@ -12,7 +16,7 @@ struct GhostPepperApp: App {
             Group {
                 switch appState.status {
                 case .recording:
-                    Image("MenuBarIconRed")
+                    Image(pulseBright ? "MenuBarIconRed" : "MenuBarIconRedDim")
                         .renderingMode(.original)
                 case .loading:
                     Image(systemName: "ellipsis.circle")
@@ -25,6 +29,13 @@ struct GhostPepperApp: App {
                 default:
                     Image("MenuBarIcon")
                         .renderingMode(.template)
+                }
+            }
+            .onReceive(pulseTimer) { _ in
+                if appState.status == .recording {
+                    pulseBright.toggle()
+                } else {
+                    pulseBright = true
                 }
             }
             .onAppear {
