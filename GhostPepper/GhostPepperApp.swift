@@ -4,8 +4,10 @@ import Combine
 @main
 struct GhostPepperApp: App {
     @StateObject private var appState = AppState()
+    @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     @State private var hasInitialized = false
     @State private var pulseBright = true
+    private let onboardingController = OnboardingWindowController()
 
     private let pulseTimer = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
 
@@ -41,8 +43,12 @@ struct GhostPepperApp: App {
             .onAppear {
                 guard !hasInitialized else { return }
                 hasInitialized = true
-                Task {
-                    await appState.initialize()
+                if onboardingCompleted {
+                    Task { await appState.initialize() }
+                } else {
+                    onboardingController.show(appState: appState) {
+                        Task { await appState.initialize() }
+                    }
                 }
             }
         }
