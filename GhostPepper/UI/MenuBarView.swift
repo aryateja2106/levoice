@@ -60,14 +60,25 @@ struct MenuBarView: View {
                 }
 
             if appState.cleanupEnabled {
-                if appState.textCleanupManager.state == .loading {
-                    Text("Loading cleanup model...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if appState.textCleanupManager.state == .error {
-                    Text(appState.textCleanupManager.errorMessage ?? "Cleanup model error")
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                let statusText = appState.textCleanupManager.statusText
+                if !statusText.isEmpty {
+                    if case .downloading(let progress) = appState.textCleanupManager.state {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(statusText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ProgressView(value: progress)
+                                .progressViewStyle(.linear)
+                        }
+                    } else if appState.textCleanupManager.state == .error {
+                        Text(statusText)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text(statusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Button("Edit Cleanup Prompt...") {
