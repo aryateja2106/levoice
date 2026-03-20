@@ -39,7 +39,17 @@ final class TextCleaner {
     @MainActor
     func clean(text: String, prompt: String? = nil) async -> String {
         let wordCount = text.split(separator: " ").count
-        guard let llm = cleanupManager.model(for: wordCount) else { return text }
+        let isQuestion = text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
+        // Use full model for questions (1.5B tries to answer them) and longer text
+        let useFullModel = isQuestion || wordCount > TextCleanupManager.shortInputThreshold
+        let llm: LLM
+        if useFullModel {
+            guard let model = cleanupManager.fullLLM ?? cleanupManager.fastLLM else { return text }
+            llm = model
+        } else {
+            guard let model = cleanupManager.model(for: wordCount) else { return text }
+            llm = model
+        }
 
         // Update template with current prompt
         let activePrompt = prompt ?? Self.defaultPrompt

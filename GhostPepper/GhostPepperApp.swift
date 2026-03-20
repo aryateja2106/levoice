@@ -31,6 +31,7 @@ struct GhostPepperApp: App {
                 default:
                     Image("MenuBarIcon")
                         .renderingMode(.template)
+                        .foregroundStyle(.orange)
                 }
             }
             .onReceive(pulseTimer) { _ in
