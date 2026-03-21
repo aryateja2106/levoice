@@ -6,6 +6,12 @@
 
 **[Download the latest release](https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg)** — macOS 14.0+, Apple Silicon (M1+)
 
+## Why "Ghost Pepper"?
+
+**Ghost** — your data never leaves your computer. No cloud, no accounts, no tracking. It's invisible to everyone but you.
+
+**Pepper** — it's spicy to offer something for free that other apps have raised $80M to build.
+
 ## Features
 
 - **Hold Control to talk** — release to transcribe and paste into any text field
@@ -30,9 +36,8 @@ Models are served by [Hugging Face](https://huggingface.co/) and cached locally 
 **Download the app:**
 1. Download [GhostPepper.dmg](https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg)
 2. Open the DMG, drag Ghost Pepper to Applications
-3. First launch: right-click the app → Open (macOS will warn about unverified apps — this is normal for open-source apps not distributed through the App Store)
-4. Grant Microphone and Accessibility permissions when prompted
-5. Hold Control and speak
+3. Grant Microphone and Accessibility permissions when prompted
+4. Hold Control and speak
 
 **Build from source:**
 1. Clone the repo
@@ -46,6 +51,14 @@ Models are served by [Hugging Face](https://huggingface.co/) and cached locally 
 | Microphone | Record your voice |
 | Accessibility | Global hotkey and paste via simulated keystrokes |
 
+## Acknowledgments
+
+Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), [LLM.swift](https://github.com/eastriverlee/LLM.swift), [Hugging Face](https://huggingface.co/), and [Sparkle](https://sparkle-project.org/).
+
+## License
+
+MIT
+
 ## Enterprise / managed devices
 
 Ghost Pepper requires Accessibility permission, which normally needs admin access to grant. On managed devices, IT admins can pre-approve this via an MDM profile (Jamf, Kandji, Mosaic, etc.) using a Privacy Preferences Policy Control (PPPC) payload:
@@ -55,13 +68,3 @@ Ghost Pepper requires Accessibility permission, which normally needs admin acces
 | Bundle ID | `com.github.matthartman.ghostpepper` |
 | Team ID | `BBVMGXR9AY` |
 | Permission | Accessibility (`com.apple.security.accessibility`) |
-
-This allows users to run Ghost Pepper without needing admin access.
-
-## Acknowledgments
-
-Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), [LLM.swift](https://github.com/eastriverlee/LLM.swift), [Hugging Face](https://huggingface.co/), and [Sparkle](https://sparkle-project.org/).
-
-## License
-
-MIT
