@@ -32,8 +32,13 @@ class RecordingOverlayController {
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
         let hosting = NSHostingView(rootView: OverlayPillView(message: message))
-        panel.contentView = hosting
+        hosting.sizingOptions = []
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        panel.contentView = container
         self.hostingView = hosting
 
         if let screen = NSScreen.main {
