@@ -19,11 +19,11 @@ final class TextCleanupManager: ObservableObject {
     /// Full model for longer inputs
     private(set) var fullLLM: LLM?
 
-    private static let fastModelFileName = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
-    private static let fastModelURL = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    private static let fastModelFileName = "Qwen3-1.7B.Q4_K_M.gguf"
+    private static let fastModelURL = "https://huggingface.co/MaziyarPanahi/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B.Q4_K_M.gguf"
 
-    private static let fullModelFileName = "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
-    private static let fullModelURL = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
+    private static let fullModelFileName = "Qwen3.5-4B-Q4_K_M.gguf"
+    private static let fullModelURL = "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
 
     static let shortInputThreshold = 15
 

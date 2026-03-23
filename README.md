@@ -21,7 +21,7 @@ Ghost Pepper uses two open-source models that download automatically on first la
 | | Model | Size | What it does |
 |---|---|---|---|
 | Speech-to-text | [WhisperKit](https://github.com/argmaxinc/WhisperKit) (small.en) | ~466 MB | Transcribes your speech to text |
-| Text cleanup | [Qwen 2.5](https://huggingface.co/Qwen) (1.5B + 3B) | ~3 GB | Removes filler words and self-corrections |
+| Text cleanup | [Qwen 3/3.5](https://huggingface.co/Qwen) (1.7B + 4B) | ~3.7 GB | Removes filler words and self-corrections |
 
 Models are served by [Hugging Face](https://huggingface.co/) and cached locally after first download.
 
