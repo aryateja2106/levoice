@@ -48,7 +48,7 @@ Models are served by [Hugging Face](https://huggingface.co/) and cached locally 
 ## Good to know
 
 - **Launch at login** is enabled by default on first run. You can toggle it off in Settings.
-- **Local transcript log** — raw and cleaned transcriptions are saved to `~/.ghostpepper/logs/transcript.log` for debugging. This file never leaves your machine and can be deleted at any time.
+- **No logging to disk** — transcriptions are never written to files. Debug logs are in-memory only and disappear when the app quits.
 
 ## Acknowledgments
 
