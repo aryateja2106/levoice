@@ -91,11 +91,13 @@ class AppState: ObservableObject {
     private static let emptyTranscriptionCancelThresholdSampleCount = 80_000
 
     nonisolated static let defaultPushToTalkChord = KeyChord(keys: Set([
-        PhysicalKey(keyCode: 59)  // Left Control
+        PhysicalKey(keyCode: 54),  // Right Command
+        PhysicalKey(keyCode: 61)   // Right Option
     ]))!
 
     nonisolated static let defaultToggleToTalkChord = KeyChord(keys: Set([
-        PhysicalKey(keyCode: 59),  // Left Control
+        PhysicalKey(keyCode: 54),  // Right Command
+        PhysicalKey(keyCode: 61),  // Right Option
         PhysicalKey(keyCode: 49)   // Space
     ]))!
 
