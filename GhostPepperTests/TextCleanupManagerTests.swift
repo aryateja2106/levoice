@@ -93,4 +93,27 @@ final class TextCleanupManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.hasUsableModelForCurrentPolicy)
     }
+
+    func testCleanupSuppressesThinkingForProductionCleanupCalls() async {
+        var capturedThinkingMode: CleanupModelProbeThinkingMode?
+        let manager = TextCleanupManager(
+            localModelPolicy: .automatic,
+            fastModelAvailabilityOverride: true,
+            fullModelAvailabilityOverride: false,
+            probeExecutionOverride: { _, _, _, thinkingMode in
+                capturedThinkingMode = thinkingMode
+                return CleanupModelProbeRawResult(
+                    modelKind: .fast,
+                    modelDisplayName: TextCleanupManager.fastModel.displayName,
+                    rawOutput: "That worked really well.",
+                    elapsed: 0.01
+                )
+            }
+        )
+
+        let result = await manager.clean(text: "That worked really well.", prompt: "unused prompt")
+
+        XCTAssertEqual(result, "That worked really well.")
+        XCTAssertEqual(capturedThinkingMode, .suppressed)
+    }
 }

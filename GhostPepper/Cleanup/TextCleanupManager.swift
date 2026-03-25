@@ -27,6 +27,13 @@ protocol TextCleaningManaging: AnyObject {
     func clean(text: String, prompt: String?) async -> String?
 }
 
+typealias CleanupModelProbeExecutionOverride = @MainActor (
+    _ text: String,
+    _ prompt: String,
+    _ modelKind: LocalCleanupModelKind,
+    _ thinkingMode: CleanupModelProbeThinkingMode
+) async throws -> CleanupModelProbeRawResult
+
 enum LocalCleanupModelKind: Equatable {
     case fast
     case full
@@ -99,16 +106,19 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
     private let defaults: UserDefaults
     private let fastModelAvailabilityOverride: Bool?
     private let fullModelAvailabilityOverride: Bool?
+    private let probeExecutionOverride: CleanupModelProbeExecutionOverride?
 
     init(
         defaults: UserDefaults = .standard,
         localModelPolicy: LocalCleanupModelPolicy? = nil,
         fastModelAvailabilityOverride: Bool? = nil,
-        fullModelAvailabilityOverride: Bool? = nil
+        fullModelAvailabilityOverride: Bool? = nil,
+        probeExecutionOverride: CleanupModelProbeExecutionOverride? = nil
     ) {
         self.defaults = defaults
         self.fastModelAvailabilityOverride = fastModelAvailabilityOverride
         self.fullModelAvailabilityOverride = fullModelAvailabilityOverride
+        self.probeExecutionOverride = probeExecutionOverride
 
         let storedPolicy = LocalCleanupModelPolicy(
             rawValue: defaults.string(forKey: Self.localModelPolicyDefaultsKey) ?? ""
@@ -188,7 +198,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
                 text: text,
                 prompt: activePrompt,
                 modelKind: modelKind,
-                thinkingMode: .none
+                thinkingMode: .suppressed
             )
             let cleaned = result.rawOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             if cleaned.isEmpty || cleaned == "..." {
@@ -206,6 +216,10 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         modelKind: LocalCleanupModelKind,
         thinkingMode: CleanupModelProbeThinkingMode
     ) async throws -> CleanupModelProbeRawResult {
+        if let probeExecutionOverride {
+            return try await probeExecutionOverride(text, prompt, modelKind, thinkingMode)
+        }
+
         guard let llm = model(for: modelKind) else {
             debugLogger?(
                 .cleanup,
