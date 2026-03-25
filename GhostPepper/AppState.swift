@@ -370,13 +370,10 @@ class AppState: ObservableObject {
             }
             let cleanupResult = await cleanedTranscriptionResult(text, windowContext: windowContext)
             let finalText = cleanupResult.text
-            let activeCleanupPrompt = cleanupResult.prompt
 
             recordCleanupDebugSnapshot(
                 rawTranscription: text,
-                basePrompt: cleanupPrompt,
                 windowContext: windowContext,
-                resolvedPrompt: activeCleanupPrompt,
                 cleanedOutput: finalText,
                 attemptedCleanup: cleanupResult.attemptedCleanup
             )
@@ -471,13 +468,10 @@ class AppState: ObservableObject {
 
     func recordCleanupDebugSnapshot(
         rawTranscription: String,
-        basePrompt: String,
         windowContext: OCRContext?,
-        resolvedPrompt: String,
         cleanedOutput: String,
         attemptedCleanup: Bool
     ) {
-        let windowContents = windowContext?.windowContents ?? "(none)"
         debugLogStore.recordSensitive(
             category: .cleanup,
             message: """
@@ -489,33 +483,14 @@ class AppState: ObservableObject {
             category: .cleanup,
             message: "cleanupEnabled=\(cleanupEnabled) attemptedCleanup=\(attemptedCleanup) backend=\(cleanupBackend.rawValue)"
         )
+        let windowContextSummary = windowContext?.windowContents.isEmpty == false ? "captured" : "none"
         debugLogStore.recordSensitive(
             category: .cleanup,
-            message: """
-            Base cleanup prompt:
-            \(basePrompt)
-            """
+            message: "Cleanup context summary: windowContext=\(windowContextSummary)"
         )
         debugLogStore.recordSensitive(
             category: .cleanup,
-            message: """
-            OCR window contents:
-            \(windowContents)
-            """
-        )
-        debugLogStore.recordSensitive(
-            category: .cleanup,
-            message: """
-            Resolved cleanup prompt:
-            \(resolvedPrompt)
-            """
-        )
-        debugLogStore.recordSensitive(
-            category: .cleanup,
-            message: """
-            Final cleaned output:
-            \(cleanedOutput)
-            """
+            message: "Final cleaned output:\n\(cleanedOutput)"
         )
     }
 

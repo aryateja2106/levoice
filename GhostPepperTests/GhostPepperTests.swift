@@ -686,9 +686,7 @@ final class GhostPepperTests: XCTestCase {
 
         appState.recordCleanupDebugSnapshot(
             rawTranscription: "raw text",
-            basePrompt: "base prompt",
             windowContext: OCRContext(windowContents: "window text"),
-            resolvedPrompt: "resolved prompt",
             cleanedOutput: "cleaned text",
             attemptedCleanup: true
         )
@@ -697,9 +695,7 @@ final class GhostPepperTests: XCTestCase {
         debugLogStore.beginLiveViewing()
         appState.recordCleanupDebugSnapshot(
             rawTranscription: "raw text",
-            basePrompt: "base prompt",
             windowContext: OCRContext(windowContents: "window text"),
-            resolvedPrompt: "resolved prompt",
             cleanedOutput: "cleaned text",
             attemptedCleanup: true
         )
@@ -707,9 +703,7 @@ final class GhostPepperTests: XCTestCase {
 
         let formattedText = debugLogStore.formattedText
         XCTAssertTrue(formattedText.contains("raw text"))
-        XCTAssertTrue(formattedText.contains("window text"))
-        XCTAssertTrue(formattedText.contains("base prompt"))
-        XCTAssertTrue(formattedText.contains("resolved prompt"))
+        XCTAssertTrue(formattedText.contains("windowContext=captured"))
         XCTAssertTrue(formattedText.contains("cleaned text"))
     }
 

@@ -4,6 +4,9 @@ final class TextCleaner {
     private static let thinkBlockExpression = try? NSRegularExpression(
         pattern: #"(?is)<think\b[^>]*>.*?</think>"#
     )
+    private static let leadingThinkTagExpression = try? NSRegularExpression(
+        pattern: #"(?is)^\s*<think\b[^>]*>"#
+    )
 
     private let localBackend: CleanupBackend
     private let correctionStore: CorrectionStore
@@ -79,43 +82,21 @@ final class TextCleaner {
         }
 
         do {
-            sensitiveDebugLogger?(
-                .cleanup,
-                """
-                Cleanup prompt:
-                \(activePrompt)
-                """
-            )
-            sensitiveDebugLogger?(
-                .cleanup,
-                """
-                Cleanup LLM input:
-                \(correctedText)
-                """
-            )
             let cleanedText = try await localBackend.clean(text: correctedText, prompt: activePrompt)
-            sensitiveDebugLogger?(
-                .cleanup,
-                """
-                Cleanup LLM raw output:
-                \(cleanedText)
-                """
-            )
-
             let sanitizedText = sanitizeCleanupOutput(cleanedText)
 
             if sanitizedText != cleanedText {
                 debugLogger?(.cleanup, "Stripped model reasoning tags from cleanup output.")
-                sensitiveDebugLogger?(
-                    .cleanup,
-                    """
-                    Cleanup LLM sanitized output:
-                    \(sanitizedText)
-                    """
-                )
             }
 
             let finalText = correctionEngine.applyPostCleanupCorrections(to: sanitizedText)
+            logCleanupTranscript(
+                prompt: activePrompt,
+                input: correctedText,
+                rawOutput: cleanedText,
+                sanitizedOutput: sanitizedText,
+                finalOutput: finalText
+            )
             if finalText == sanitizedText {
                 sensitiveDebugLogger?(.cleanup, "Post-cleanup corrections: no changes applied.")
             } else {
@@ -155,12 +136,50 @@ final class TextCleaner {
     }
 
     private func sanitizeCleanupOutput(_ text: String) -> String {
-        guard let expression = Self.thinkBlockExpression else {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var sanitizedText = text
+
+        if let expression = Self.thinkBlockExpression {
+            let range = NSRange(sanitizedText.startIndex..., in: sanitizedText)
+            sanitizedText = expression.stringByReplacingMatches(in: sanitizedText, range: range, withTemplate: "")
         }
 
-        let range = NSRange(text.startIndex..., in: text)
-        let sanitizedText = expression.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+        if let leadingThinkTagExpression = Self.leadingThinkTagExpression {
+            let range = NSRange(sanitizedText.startIndex..., in: sanitizedText)
+            if let match = leadingThinkTagExpression.firstMatch(in: sanitizedText, range: range),
+               let thinkStart = Range(match.range, in: sanitizedText)?.lowerBound {
+                sanitizedText = String(sanitizedText[..<thinkStart])
+            }
+        }
+
         return sanitizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func logCleanupTranscript(
+        prompt: String,
+        input: String,
+        rawOutput: String,
+        sanitizedOutput: String,
+        finalOutput: String
+    ) {
+        sensitiveDebugLogger?(
+            .cleanup,
+            """
+            Cleanup LLM transcript:
+            System prompt:
+            \(prompt)
+
+            User input:
+            \(input)
+
+            Raw model output:
+            \(rawOutput)
+
+            Sanitized model output:
+            \(sanitizedOutput)
+
+            Final cleaned output:
+            \(finalOutput)
+            """
+        )
     }
 }
