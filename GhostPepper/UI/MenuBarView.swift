@@ -30,7 +30,7 @@ struct MenuBarView: View {
                     .padding(.vertical, 2)
             }
 
-            if case .downloading(let progress) = appState.textCleanupManager.state {
+            if case .downloading(_, let progress) = appState.textCleanupManager.state {
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)
                     .padding(.horizontal, 14)

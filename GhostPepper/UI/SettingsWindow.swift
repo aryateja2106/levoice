@@ -142,6 +142,25 @@ struct SettingsView: View {
         _micPreviewController = StateObject(wrappedValue: MicPreviewController(monitor: micMonitor))
     }
 
+    private var modelRows: [RuntimeModelRow] {
+        RuntimeModelInventory.rows(
+            selectedSpeechModelName: appState.whisperModel,
+            activeSpeechModelName: appState.modelManager.modelName,
+            speechModelState: appState.modelManager.state,
+            cachedSpeechModelNames: appState.modelManager.cachedModelNames,
+            cleanupState: appState.textCleanupManager.state,
+            loadedCleanupKinds: appState.textCleanupManager.loadedModelKinds
+        )
+    }
+
+    private var hasMissingModels: Bool {
+        RuntimeModelInventory.hasMissingModels(rows: modelRows)
+    }
+
+    private var modelsAreDownloading: Bool {
+        RuntimeModelInventory.activeDownloadText(rows: modelRows) != nil
+    }
+
     var body: some View {
         Form {
             Section {
@@ -221,9 +240,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
 
                 Picker("Speech Model", selection: $appState.whisperModel) {
-                    Text("Speed (tiny.en — ~75 MB)").tag("openai_whisper-tiny.en")
-                    Text("Accuracy (small.en — ~466 MB)").tag("openai_whisper-small.en")
-                    Text("Multilingual (small — ~466 MB)").tag("openai_whisper-small")
+                    ForEach(ModelManager.availableModels) { model in
+                        Text(model.pickerLabel).tag(model.name)
+                    }
                 }
                 .onChange(of: appState.whisperModel) { _, newModel in
                     Task {
@@ -353,38 +372,34 @@ struct SettingsView: View {
                     }
             }
             Section {
-                ModelStatusRow(
-                    name: "WhisperKit (speech-to-text)",
-                    isLoaded: appState.modelManager.isReady
-                )
-                ModelStatusRow(
-                    name: TextCleanupManager.fastModel.displayName,
-                    isLoaded: appState.textCleanupManager.fastLLM != nil
-                )
-                ModelStatusRow(
-                    name: TextCleanupManager.fullModel.displayName,
-                    isLoaded: appState.textCleanupManager.fullLLM != nil
-                )
+                ModelInventoryCard(rows: modelRows)
 
-                if !appState.modelManager.isReady || appState.textCleanupManager.fastLLM == nil || appState.textCleanupManager.fullLLM == nil {
+                if let activeDownloadText = RuntimeModelInventory.activeDownloadText(rows: modelRows) {
+                    Text(activeDownloadText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if hasMissingModels {
                     Button {
                         Task {
-                            if !appState.modelManager.isReady {
-                                await appState.modelManager.loadModel()
-                            }
-                            if appState.textCleanupManager.fastLLM == nil || appState.textCleanupManager.fullLLM == nil {
-                                await appState.textCleanupManager.loadModel()
-                            }
+                            await downloadMissingModels()
                         }
                     } label: {
                         HStack {
-                            Image(systemName: "arrow.down.circle")
-                            Text("Download Missing Models")
+                            if modelsAreDownloading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                            }
+                            Text(modelsAreDownloading ? "Downloading Models..." : "Download Missing Models")
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
                     .controlSize(.small)
+                    .disabled(modelsAreDownloading)
                 }
             } header: {
                 Text("Models")
@@ -409,6 +424,25 @@ struct SettingsView: View {
     private func refreshScreenRecordingPermission() {
         hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
     }
+
+    private func downloadMissingModels() async {
+        let selectedSpeechModelName = appState.whisperModel
+        let missingSpeechModels = ModelManager.availableModels
+            .map(\.name)
+            .filter { !appState.modelManager.cachedModelNames.contains($0) }
+
+        for modelName in missingSpeechModels {
+            await appState.modelManager.loadModel(name: modelName)
+        }
+
+        if appState.modelManager.modelName != selectedSpeechModelName || !appState.modelManager.isReady {
+            await appState.modelManager.loadModel(name: selectedSpeechModelName)
+        }
+
+        if appState.textCleanupManager.loadedModelKinds.count < TextCleanupManager.cleanupModels.count {
+            await appState.textCleanupManager.loadModel()
+        }
+    }
 }
 
 private struct ScreenRecordingRecoveryView: View {
@@ -422,38 +456,6 @@ private struct ScreenRecordingRecoveryView: View {
 
             Button("Open Screen Recording Settings", action: onOpenSettings)
             .controlSize(.small)
-        }
-    }
-}
-
-struct ModelStatusRow: View {
-    let name: String
-    let isLoaded: Bool
-
-    var body: some View {
-        HStack {
-            Text(name)
-                .font(.callout)
-            Spacer()
-            if isLoaded {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
-                    Text("Loaded")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "circle")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                    Text("Not loaded")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
     }
 }

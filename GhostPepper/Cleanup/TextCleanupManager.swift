@@ -3,7 +3,7 @@ import LLM
 
 enum CleanupModelState: Equatable {
     case idle
-    case downloading(progress: Double)
+    case downloading(kind: LocalCleanupModelKind, progress: Double)
     case loadingModel
     case ready
     case error
@@ -135,7 +135,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         switch state {
         case .idle:
             return ""
-        case .downloading(let progress):
+        case .downloading(_, let progress):
             let pct = Int(progress * 100)
             return "Downloading cleanup models (\(pct)%)..."
         case .loadingModel:
@@ -213,22 +213,19 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         let needsFull = !FileManager.default.fileExists(atPath: fullPath.path)
 
         if needsFast || needsFull {
-            state = .downloading(progress: 0)
             do {
                 if needsFast {
                     try await downloadModel(
+                        kind: .fast,
                         url: Self.fastModel.url,
-                        to: fastPath,
-                        progressOffset: 0,
-                        progressScale: needsFull ? 0.33 : 1.0
+                        to: fastPath
                     )
                 }
                 if needsFull {
                     try await downloadModel(
+                        kind: .full,
                         url: Self.fullModel.url,
-                        to: fullPath,
-                        progressOffset: needsFast ? 0.33 : 0,
-                        progressScale: needsFast ? 0.67 : 1.0
+                        to: fullPath
                     )
                 }
             } catch {
@@ -283,14 +280,27 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         debugLogger?(.model, "Unloaded local cleanup models.")
     }
 
-    private func downloadModel(url urlString: String, to destination: URL, progressOffset: Double, progressScale: Double) async throws {
+    var loadedModelKinds: Set<LocalCleanupModelKind> {
+        var kinds = Set<LocalCleanupModelKind>()
+        if fastLLM != nil {
+            kinds.insert(.fast)
+        }
+        if fullLLM != nil {
+            kinds.insert(.full)
+        }
+        return kinds
+    }
+
+    private func downloadModel(kind: LocalCleanupModelKind, url urlString: String, to destination: URL) async throws {
         guard let url = URL(string: urlString) else {
             throw URLError(.badURL)
         }
 
+        state = .downloading(kind: kind, progress: 0)
+
         let delegate = DownloadProgressDelegate { [weak self] progress in
             Task { @MainActor in
-                self?.state = .downloading(progress: progressOffset + progress * progressScale)
+                self?.state = .downloading(kind: kind, progress: progress)
             }
         }
 
