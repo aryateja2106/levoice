@@ -108,7 +108,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .recording: "Shortcuts, microphone input, live preview, and sound feedback."
+        case .recording: "Shortcuts, microphone input, dictation testing, and sound feedback."
         case .cleanup: "Prompt cleanup, OCR context, and learning behavior."
         case .corrections: "Words and replacements Ghost Pepper should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
@@ -187,7 +187,16 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(selectedSection == section ? Color.accentColor.opacity(0.14) : .clear)
+                                .fill(selectedSection == section ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.22) : .clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(
+                                    selectedSection == section
+                                        ? Color(nsColor: .separatorColor)
+                                        : Color.clear,
+                                    lineWidth: 1
+                                )
                         )
                     }
                     .buttonStyle(.plain)
@@ -198,7 +207,12 @@ struct SettingsView: View {
             }
             .frame(minWidth: 250, idealWidth: 270, maxWidth: 270, maxHeight: .infinity, alignment: .topLeading)
             .padding(20)
-            .background(Color(nsColor: .underPageBackgroundColor))
+            .background(Color(nsColor: .controlBackgroundColor))
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1)
+            }
 
             ScrollView {
                 detailContent
@@ -399,26 +413,6 @@ struct SettingsView: View {
                     )
 
                     if appState.cleanupEnabled {
-                        SettingsField("Cleanup model") {
-                            Picker(
-                                "Cleanup model",
-                                selection: Binding(
-                                    get: { appState.textCleanupManager.localModelPolicy },
-                                    set: { appState.textCleanupManager.localModelPolicy = $0 }
-                                )
-                            ) {
-                                ForEach(LocalCleanupModelPolicy.allCases) { policy in
-                                    Text(policy.title).tag(policy)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 320, alignment: .leading)
-                        }
-
-                        Button("Edit Cleanup Prompt...") {
-                            appState.showPromptEditor()
-                        }
-
                         if appState.textCleanupManager.state == .error {
                             Text(appState.textCleanupManager.errorMessage ?? "Error loading model")
                                 .font(.caption)
@@ -426,9 +420,29 @@ struct SettingsView: View {
                         }
                     }
 
-                    Text("When enabled, Ghost Pepper cleans up your transcriptions with the selected local model policy.")
+                    Text("When enabled, Ghost Pepper runs local cleanup with the selected cleanup model from the Models section.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            SettingsCard("Cleanup prompt") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Ghost Pepper uses this prompt before adding OCR context and correction hints.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    BorderedTextEditor(text: $appState.cleanupPrompt, minHeight: 220)
+
+                    HStack {
+                        Spacer()
+
+                        Button("Reset to Default") {
+                            appState.cleanupPrompt = TextCleaner.defaultPrompt
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
 
@@ -529,6 +543,29 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            SettingsCard("Cleanup model") {
+                SettingsField("Active cleanup model") {
+                    Picker(
+                        "Cleanup model",
+                        selection: Binding(
+                            get: { appState.textCleanupManager.localModelPolicy },
+                            set: { appState.textCleanupManager.localModelPolicy = $0 }
+                        )
+                    ) {
+                        ForEach(LocalCleanupModelPolicy.allCases) { policy in
+                            Text(policy.title).tag(policy)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 360, alignment: .leading)
+                }
+
+                Text("Use Qwen 3 1.7B for faster cleanup or Qwen 3.5 4B for the highest-quality cleanup.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             SettingsCard("Runtime models") {
                 VStack(alignment: .leading, spacing: 16) {
                     ModelInventoryCard(rows: modelRows)
@@ -619,6 +656,10 @@ private struct SettingsCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
     }
 }
 
@@ -650,14 +691,33 @@ private struct CorrectionsEditor: View {
             Text(title)
                 .font(.subheadline.weight(.medium))
 
-            TextEditor(text: text)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 72)
+            BorderedTextEditor(text: text, minHeight: 96)
 
             Text(prompt)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct BorderedTextEditor: View {
+    let text: Binding<String>
+    let minHeight: CGFloat
+
+    var body: some View {
+        TextEditor(text: text)
+            .font(.system(.body, design: .monospaced))
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: minHeight)
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
     }
 }
