@@ -6,6 +6,7 @@ enum OverlayMessage: Equatable {
     case modelLoading
     case cleaningUp
     case transcribing
+    case noSoundDetected
     case learnedCorrection(MisheardReplacement)
 
     var primaryText: String {
@@ -18,6 +19,8 @@ enum OverlayMessage: Equatable {
             return "Cleaning up..."
         case .transcribing:
             return "Transcribing..."
+        case .noSoundDetected:
+            return "No sound detected"
         case .learnedCorrection:
             return "Learned correction"
         }
@@ -112,15 +115,16 @@ class RecordingOverlayController {
     }
 
     private func scheduleDismissIfNeeded(for message: OverlayMessage) {
-        guard case .learnedCorrection = message else {
+        switch message {
+        case .learnedCorrection, .noSoundDetected:
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.dismiss()
+            }
+            dismissWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
+        default:
             return
         }
-
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.dismiss()
-        }
-        dismissWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
     }
 }
 
@@ -136,6 +140,8 @@ struct OverlayPillView: View {
             return .orange
         case .cleaningUp, .transcribing:
             return .blue
+        case .noSoundDetected:
+            return .orange
         case .learnedCorrection:
             return .green
         }

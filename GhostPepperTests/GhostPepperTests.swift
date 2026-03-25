@@ -53,6 +53,29 @@ final class GhostPepperTests: XCTestCase {
         XCTAssertEqual(AppStatus.error.rawValue, "Error")
     }
 
+    func testEmptyTranscriptionDispositionCancelsShortRecordings() {
+        XCTAssertEqual(
+            AppState.emptyTranscriptionDisposition(forAudioSampleCount: 79_999),
+            .cancel
+        )
+    }
+
+    func testEmptyTranscriptionDispositionShowsNoSoundForFiveSecondsOrLonger() {
+        XCTAssertEqual(
+            AppState.emptyTranscriptionDisposition(forAudioSampleCount: 80_000),
+            .showNoSoundDetected
+        )
+        XCTAssertEqual(
+            AppState.emptyTranscriptionDisposition(forAudioSampleCount: 96_000),
+            .showNoSoundDetected
+        )
+    }
+
+    func testNoSoundDetectedOverlayMessageUsesExpectedCopy() {
+        XCTAssertEqual(OverlayMessage.noSoundDetected.primaryText, "No sound detected")
+        XCTAssertNil(OverlayMessage.noSoundDetected.secondaryText)
+    }
+
     func testOverlayHostingViewDoesNotManageWindowSizingConstraints() {
         let overlay = RecordingOverlayController()
         overlay.show(message: .recording)

@@ -11,6 +11,11 @@ enum AppStatus: String {
     case error = "Error"
 }
 
+enum EmptyTranscriptionDisposition: Equatable {
+    case cancel
+    case showNoSoundDetected
+}
+
 @MainActor
 class AppState: ObservableObject {
     @Published var status: AppStatus = .loading
@@ -66,6 +71,14 @@ class AppState: ObservableObject {
         status == .ready
     }
 
+    static func emptyTranscriptionDisposition(forAudioSampleCount sampleCount: Int) -> EmptyTranscriptionDisposition {
+        if sampleCount < emptyTranscriptionCancelThresholdSampleCount {
+            return .cancel
+        }
+
+        return .showNoSoundDetected
+    }
+
     private var cleanupStateObserver: Any? = nil
     private let cleanupSettingsDefaults: UserDefaults
     private let inputMonitoringChecker: () -> Bool
@@ -75,6 +88,7 @@ class AppState: ObservableObject {
     private static let cleanupBackendDefaultsKey = "cleanupBackend"
     private static let frontmostWindowContextEnabledDefaultsKey = "frontmostWindowContextEnabled"
     private static let postPasteLearningEnabledDefaultsKey = "postPasteLearningEnabled"
+    private static let emptyTranscriptionCancelThresholdSampleCount = 80_000
 
     nonisolated static let defaultPushToTalkChord = KeyChord(keys: Set([
         PhysicalKey(keyCode: 59)  // Left Control
@@ -368,10 +382,15 @@ class AppState: ObservableObject {
             overlay.dismiss()
             textPaster.paste(text: finalText)
         } else {
-            overlay.dismiss()
-            showInputCheckAlert()
+            switch Self.emptyTranscriptionDisposition(forAudioSampleCount: buffer.count) {
+            case .cancel:
+                overlay.dismiss()
+                debugLogStore.record(category: .model, message: "Empty transcription cancelled after a short recording.")
+            case .showNoSoundDetected:
+                overlay.show(message: .noSoundDetected)
+                debugLogStore.record(category: .model, message: "No sound detected for a long recording.")
+            }
             status = .ready
-            debugLogStore.record(category: .model, message: "Transcription returned no text.")
             return
         }
 
@@ -381,20 +400,6 @@ class AppState: ObservableObject {
     func cleanedTranscription(_ text: String) async -> String {
         let result = await cleanedTranscriptionResult(text, windowContext: nil)
         return result.text
-    }
-
-    private func showInputCheckAlert() {
-        let alert = NSAlert()
-        alert.messageText = "No sound coming in"
-        alert.informativeText = "We didn't pick up any audio. Check that the right microphone is selected."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Settings")
-        alert.addButton(withTitle: "Dismiss")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            showSettings()
-        }
     }
 
     private let settingsController = SettingsWindowController()
