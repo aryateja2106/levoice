@@ -45,6 +45,11 @@ Models are served by [Hugging Face](https://huggingface.co/) and cached locally 
 | Microphone | Record your voice |
 | Accessibility | Global hotkey and paste via simulated keystrokes |
 
+## Good to know
+
+- **Launch at login** is enabled by default on first run. You can toggle it off in Settings.
+- **Local transcript log** — raw and cleaned transcriptions are saved to `~/.ghostpepper/logs/transcript.log` for debugging. This file never leaves your machine and can be deleted at any time.
+
 ## Acknowledgments
 
 Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), [LLM.swift](https://github.com/eastriverlee/LLM.swift), [Hugging Face](https://huggingface.co/), and [Sparkle](https://sparkle-project.org/).
