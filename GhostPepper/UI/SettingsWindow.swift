@@ -223,6 +223,7 @@ struct SettingsView: View {
                 Picker("Speech Model", selection: $appState.whisperModel) {
                     Text("Speed (tiny.en — ~75 MB)").tag("openai_whisper-tiny.en")
                     Text("Accuracy (small.en — ~466 MB)").tag("openai_whisper-small.en")
+                    Text("Multilingual (small — ~466 MB)").tag("openai_whisper-small")
                 }
                 .onChange(of: appState.whisperModel) { _, newModel in
                     Task {
