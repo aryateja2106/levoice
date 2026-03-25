@@ -146,7 +146,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         }
 
         let activePrompt = prompt ?? TextCleaner.defaultPrompt
-        llm.template = Template.chatML(activePrompt)
+        llm.useResolvedTemplate(systemPrompt: activePrompt)
         llm.history = []
 
         let start = Date()
@@ -210,7 +210,11 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
         // Load fast model first (smaller, quicker to load)
         let fast = await Task.detached { () -> LLM? in
-            return LLM(from: fastPath, template: Template.chatML(TextCleaner.defaultPrompt), maxTokenCount: 2048)
+            guard let llm = LLM(from: fastPath, maxTokenCount: 2048) else {
+                return nil
+            }
+            llm.useResolvedTemplate(systemPrompt: TextCleaner.defaultPrompt)
+            return llm
         }.value
 
         if let fast = fast {
@@ -222,7 +226,11 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
         // Load full model
         let full = await Task.detached { () -> LLM? in
-            return LLM(from: fullPath, template: Template.chatML(TextCleaner.defaultPrompt), maxTokenCount: 4096)
+            guard let llm = LLM(from: fullPath, maxTokenCount: 4096) else {
+                return nil
+            }
+            llm.useResolvedTemplate(systemPrompt: TextCleaner.defaultPrompt)
+            return llm
         }.value
 
         if let full = full {
