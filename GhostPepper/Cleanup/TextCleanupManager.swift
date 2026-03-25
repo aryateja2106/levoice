@@ -284,9 +284,12 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
         state = .loadingModel
 
+        let fastModel = Self.fastModel
+        let fullModel = Self.fullModel
+
         // Load fast model first (smaller, quicker to load)
         let fast = await Task.detached { () -> LLM? in
-            guard let llm = LLM(from: fastPath, maxTokenCount: Self.fastModel.maxTokenCount) else {
+            guard let llm = LLM(from: fastPath, maxTokenCount: fastModel.maxTokenCount) else {
                 return nil
             }
             llm.useResolvedTemplate(systemPrompt: TextCleaner.defaultPrompt)
@@ -302,7 +305,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
         // Load full model
         let full = await Task.detached { () -> LLM? in
-            guard let llm = LLM(from: fullPath, maxTokenCount: Self.fullModel.maxTokenCount) else {
+            guard let llm = LLM(from: fullPath, maxTokenCount: fullModel.maxTokenCount) else {
                 return nil
             }
             llm.useResolvedTemplate(systemPrompt: TextCleaner.defaultPrompt)

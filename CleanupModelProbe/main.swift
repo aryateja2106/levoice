@@ -88,6 +88,7 @@ enum CleanupModelProbeMain {
         )
     }
 
+    @MainActor
     private static func label(for modelKind: LocalCleanupModelKind) -> String {
         switch modelKind {
         case .fast:
