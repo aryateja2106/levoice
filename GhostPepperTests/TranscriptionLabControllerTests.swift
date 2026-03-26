@@ -82,6 +82,29 @@ final class TranscriptionLabControllerTests: XCTestCase {
         XCTAssertNil(controller.runningStage)
     }
 
+    func testDisplayedExperimentOutputsDefaultToOriginalOutputs() {
+        let entry = makeEntry(
+            createdAt: Date(),
+            speechModelID: "openai_whisper-small.en",
+            cleanupModelName: "Qwen 3 1.7B (fast cleanup)"
+        )
+        let controller = TranscriptionLabController(
+            defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
+            loadEntries: { [entry] },
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in "" },
+            runCleanup: { _, _, _, _ in
+                TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
+            }
+        )
+
+        controller.reloadEntries()
+        controller.selectEntry(entry.id)
+
+        XCTAssertEqual(controller.displayedExperimentRawTranscription, "raw")
+        XCTAssertEqual(controller.displayedExperimentCorrectedTranscription, "corrected")
+    }
+
     private func makeEntry(
         createdAt: Date,
         speechModelID: String,

@@ -74,6 +74,22 @@ final class TranscriptionLabController: ObservableObject {
         return selectedEntry?.rawTranscription ?? ""
     }
 
+    var displayedExperimentRawTranscription: String {
+        if !experimentRawTranscription.isEmpty {
+            return experimentRawTranscription
+        }
+
+        return selectedEntry?.rawTranscription ?? ""
+    }
+
+    var displayedExperimentCorrectedTranscription: String {
+        if !experimentCorrectedTranscription.isEmpty {
+            return experimentCorrectedTranscription
+        }
+
+        return selectedEntry?.correctedTranscription ?? ""
+    }
+
     func audioURL(for entry: TranscriptionLabEntry) -> URL {
         audioURLForEntry(entry)
     }

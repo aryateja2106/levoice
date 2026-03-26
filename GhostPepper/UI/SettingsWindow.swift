@@ -784,9 +784,7 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.medium))
 
                     ReadOnlyTextPane(
-                        text: transcriptionLabController.experimentRawTranscription.isEmpty
-                            ? "Rerun transcription with a different speech model to see the new raw transcript here."
-                            : transcriptionLabController.experimentRawTranscription,
+                        text: transcriptionLabController.displayedExperimentRawTranscription,
                         minimumHeight: 72,
                         maximumHeight: 180,
                         monospaced: false
@@ -878,9 +876,7 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.medium))
 
                     ReadOnlyTextPane(
-                        text: transcriptionLabController.experimentCorrectedTranscription.isEmpty
-                            ? "Run cleanup to see the new corrected output here."
-                            : transcriptionLabController.experimentCorrectedTranscription,
+                        text: transcriptionLabController.displayedExperimentCorrectedTranscription,
                         minimumHeight: 72,
                         maximumHeight: 180,
                         monospaced: false
