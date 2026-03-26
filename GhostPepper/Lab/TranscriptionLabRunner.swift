@@ -6,8 +6,7 @@ enum TranscriptionLabRunnerError: Error, Equatable {
     case transcriptionFailed
 }
 
-struct TranscriptionLabRunResult: Equatable {
-    let rawTranscription: String
+struct TranscriptionLabCleanupResult: Equatable {
     let correctedTranscription: String
     let cleanupUsedFallback: Bool
 }
@@ -42,15 +41,12 @@ final class TranscriptionLabRunner {
         self.cleanupPromptBuilder = cleanupPromptBuilder
     }
 
-    func rerun(
+    func rerunTranscription(
         entry: TranscriptionLabEntry,
         speechModelID: String,
-        cleanupModelKind: LocalCleanupModelKind,
-        prompt: String,
-        includeWindowContext: Bool,
         acquirePipeline: () -> Bool,
         releasePipeline: () -> Void
-    ) async throws -> TranscriptionLabRunResult {
+    ) async throws -> String {
         guard acquirePipeline() else {
             throw TranscriptionLabRunnerError.pipelineBusy
         }
@@ -67,6 +63,23 @@ final class TranscriptionLabRunner {
             throw TranscriptionLabRunnerError.transcriptionFailed
         }
 
+        return rawTranscription
+    }
+
+    func rerunCleanup(
+        entry: TranscriptionLabEntry,
+        rawTranscription: String,
+        cleanupModelKind: LocalCleanupModelKind,
+        prompt: String,
+        includeWindowContext: Bool,
+        acquirePipeline: () -> Bool,
+        releasePipeline: () -> Void
+    ) async throws -> TranscriptionLabCleanupResult {
+        guard acquirePipeline() else {
+            throw TranscriptionLabRunnerError.pipelineBusy
+        }
+        defer { releasePipeline() }
+
         let activePrompt = cleanupPromptBuilder.buildPrompt(
             basePrompt: prompt,
             windowContext: entry.windowContext,
@@ -76,8 +89,7 @@ final class TranscriptionLabRunner {
         )
 
         let cleanedResult = await clean(rawTranscription, activePrompt, cleanupModelKind)
-        return TranscriptionLabRunResult(
-            rawTranscription: rawTranscription,
+        return TranscriptionLabCleanupResult(
             correctedTranscription: cleanedResult.text,
             cleanupUsedFallback: cleanedResult.performance.modelCallDuration == nil
         )

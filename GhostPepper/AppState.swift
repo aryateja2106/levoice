@@ -705,12 +705,14 @@ class AppState: ObservableObject {
         try transcriptionLabStore.loadEntries()
     }
 
-    func rerunTranscriptionLabEntry(
+    func transcriptionLabAudioURL(for entry: TranscriptionLabEntry) -> URL {
+        transcriptionLabStore.audioURL(for: entry.audioFileName)
+    }
+
+    func rerunTranscriptionLabTranscription(
         _ entry: TranscriptionLabEntry,
-        speechModelID: String,
-        cleanupModelKind: LocalCleanupModelKind,
-        prompt: String
-    ) async throws -> TranscriptionLabRunResult {
+        speechModelID: String
+    ) async throws -> String {
         guard acquirePipeline(for: .transcriptionLab) else {
             throw TranscriptionLabRunnerError.pipelineBusy
         }
@@ -719,12 +721,9 @@ class AppState: ObservableObject {
         let runner = makeTranscriptionLabRunner()
 
         do {
-            let result = try await runner.rerun(
+            let result = try await runner.rerunTranscription(
                 entry: entry,
                 speechModelID: speechModelID,
-                cleanupModelKind: cleanupModelKind,
-                prompt: prompt,
-                includeWindowContext: true,
                 acquirePipeline: { true },
                 releasePipeline: {}
             )
@@ -733,6 +732,36 @@ class AppState: ObservableObject {
             return result
         } catch {
             await restorePreferredSpeechModelIfNeeded(preferredSpeechModelID)
+            releasePipeline(owner: .transcriptionLab)
+            throw error
+        }
+    }
+
+    func rerunTranscriptionLabCleanup(
+        _ entry: TranscriptionLabEntry,
+        rawTranscription: String,
+        cleanupModelKind: LocalCleanupModelKind,
+        prompt: String
+    ) async throws -> TranscriptionLabCleanupResult {
+        guard acquirePipeline(for: .transcriptionLab) else {
+            throw TranscriptionLabRunnerError.pipelineBusy
+        }
+
+        let runner = makeTranscriptionLabRunner()
+
+        do {
+            let result = try await runner.rerunCleanup(
+                entry: entry,
+                rawTranscription: rawTranscription,
+                cleanupModelKind: cleanupModelKind,
+                prompt: prompt,
+                includeWindowContext: true,
+                acquirePipeline: { true },
+                releasePipeline: {}
+            )
+            releasePipeline(owner: .transcriptionLab)
+            return result
+        } catch {
             releasePipeline(owner: .transcriptionLab)
             throw error
         }

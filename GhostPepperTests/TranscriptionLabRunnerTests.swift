@@ -47,9 +47,15 @@ final class TranscriptionLabRunnerTests: XCTestCase {
             correctionStore: correctionStore
         )
 
-        let result = try await runner.rerun(
+        let rawTranscription = try await runner.rerunTranscription(
             entry: entry,
             speechModelID: "fluid_parakeet-v3",
+            acquirePipeline: { true },
+            releasePipeline: {}
+        )
+        let result = try await runner.rerunCleanup(
+            entry: entry,
+            rawTranscription: rawTranscription,
             cleanupModelKind: .full,
             prompt: TextCleaner.defaultPrompt,
             includeWindowContext: true,
@@ -59,7 +65,7 @@ final class TranscriptionLabRunnerTests: XCTestCase {
 
         XCTAssertEqual(loadedSpeechModels, ["fluid_parakeet-v3"])
         XCTAssertEqual(transcribedBuffers, [[0.1, 0.2, 0.3]])
-        XCTAssertEqual(result.rawTranscription, "The default should be Quen three point five four b.")
+        XCTAssertEqual(rawTranscription, "The default should be Quen three point five four b.")
         XCTAssertEqual(result.correctedTranscription, "The default should be Qwen 3.5 4B.")
         XCTAssertFalse(result.cleanupUsedFallback)
         XCTAssertTrue(cleanedPrompts[0].contains("Qwen 3.5 4B"))
@@ -89,12 +95,9 @@ final class TranscriptionLabRunnerTests: XCTestCase {
         )
 
         do {
-            _ = try await runner.rerun(
+            _ = try await runner.rerunTranscription(
                 entry: makeEntry(),
                 speechModelID: "fluid_parakeet-v3",
-                cleanupModelKind: .fast,
-                prompt: TextCleaner.defaultPrompt,
-                includeWindowContext: true,
                 acquirePipeline: { false },
                 releasePipeline: {}
             )
@@ -121,9 +124,9 @@ final class TranscriptionLabRunnerTests: XCTestCase {
             correctionStore: CorrectionStore(defaults: UserDefaults(suiteName: #function)!)
         )
 
-        let result = try await runner.rerun(
+        let result = try await runner.rerunCleanup(
             entry: makeEntry(),
-            speechModelID: "openai_whisper-small.en",
+            rawTranscription: "raw text",
             cleanupModelKind: .fast,
             prompt: TextCleaner.defaultPrompt,
             includeWindowContext: false,

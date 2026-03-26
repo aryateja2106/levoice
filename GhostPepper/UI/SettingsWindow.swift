@@ -138,6 +138,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
     @State private var selectedSection: SettingsSection = .recording
+    @State private var transcriptionLabPreviewSound: NSSound?
     @StateObject private var dictationTestController: SettingsDictationTestController
     @StateObject private var transcriptionLabController: TranscriptionLabController
 
@@ -153,10 +154,19 @@ struct SettingsView: View {
                 loadEntries: {
                     try appState.loadTranscriptionLabEntries()
                 },
-                runExperiment: { entry, speechModelID, cleanupModelKind, prompt in
-                    try await appState.rerunTranscriptionLabEntry(
+                audioURLForEntry: { entry in
+                    appState.transcriptionLabAudioURL(for: entry)
+                },
+                runTranscription: { entry, speechModelID in
+                    try await appState.rerunTranscriptionLabTranscription(
                         entry,
-                        speechModelID: speechModelID,
+                        speechModelID: speechModelID
+                    )
+                },
+                runCleanup: { entry, rawTranscription, cleanupModelKind, prompt in
+                    try await appState.rerunTranscriptionLabCleanup(
+                        entry,
+                        rawTranscription: rawTranscription,
                         cleanupModelKind: cleanupModelKind,
                         prompt: prompt
                     )
@@ -268,6 +278,13 @@ struct SettingsView: View {
 
     private func refreshScreenRecordingPermission() {
         hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
+    }
+
+    private func playTranscriptionLabAudio(for entry: TranscriptionLabEntry) {
+        let sound = NSSound(contentsOf: transcriptionLabController.audioURL(for: entry), byReference: false)
+        transcriptionLabPreviewSound?.stop()
+        transcriptionLabPreviewSound = sound
+        transcriptionLabPreviewSound?.play()
     }
 
     private func downloadMissingModels() async {
@@ -463,7 +480,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    BorderedTextEditor(text: $appState.cleanupPrompt, minHeight: 220)
+                    BorderedTextEditor(
+                        text: $appState.cleanupPrompt,
+                        minimumHeight: 140,
+                        maximumHeight: 260
+                    )
 
                     HStack {
                         Spacer()
@@ -698,32 +719,39 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            SettingsCard("Original") {
+            SettingsCard("Audio recording") {
                 VStack(alignment: .leading, spacing: 16) {
                     TranscriptionLabMetadataSummary(entry: entry)
 
-                    TranscriptionLabResultStack(
-                        rawTitle: "Raw transcription",
-                        rawText: entry.rawTranscription ?? "No transcription was captured for this recording.",
-                        correctedTitle: "Corrected transcription",
-                        correctedText: entry.correctedTranscription ?? "No corrected output was captured for this recording."
-                    )
-
-                    if let windowContents = entry.windowContext?.windowContents,
-                       !windowContents.isEmpty {
-                        DisclosureGroup("Show captured OCR context") {
-                            ReadOnlyTextPane(text: windowContents, minHeight: 120, monospaced: true)
-                                .padding(.top, 10)
+                    HStack(spacing: 12) {
+                        Button {
+                            playTranscriptionLabAudio(for: entry)
+                        } label: {
+                            Label("Play recording", systemImage: "play.fill")
                         }
-                        .font(.callout)
+                        .buttonStyle(.bordered)
+
+                        Text("Use this recording as the fixed input for transcription and cleanup experiments.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            SettingsCard("Experiment") {
+            SettingsCard("Transcription") {
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top, spacing: 16) {
-                        SettingsField("Speech model") {
+                    Text("Original raw transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: entry.rawTranscription ?? "No transcription was captured for this recording.",
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
+                    )
+
+                    HStack(alignment: .bottom, spacing: 16) {
+                        SettingsField("New speech model") {
                             Picker("Speech Model", selection: $transcriptionLabController.selectedSpeechModelID) {
                                 ForEach(ModelManager.availableModels) { model in
                                     Text(model.pickerLabel).tag(model.name)
@@ -733,7 +761,53 @@ struct SettingsView: View {
                             .frame(maxWidth: 360, alignment: .leading)
                         }
 
-                        SettingsField("Cleanup model") {
+                        Button {
+                            Task {
+                                await transcriptionLabController.rerunTranscription()
+                            }
+                        } label: {
+                            HStack {
+                                if transcriptionLabController.isRunningTranscription {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.trianglehead.clockwise")
+                                }
+                                Text(transcriptionLabController.isRunningTranscription ? "Rerunning..." : "Rerun Transcription")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(transcriptionLabController.runningStage != nil)
+                    }
+
+                    Text("Experiment raw transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: transcriptionLabController.experimentRawTranscription.isEmpty
+                            ? "Rerun transcription with a different speech model to see the new raw transcript here."
+                            : transcriptionLabController.experimentRawTranscription,
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
+                    )
+                }
+            }
+
+            SettingsCard("Cleanup") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Original corrected transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: entry.correctedTranscription ?? "No corrected output was captured for this recording.",
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
+                    )
+
+                    HStack(alignment: .bottom, spacing: 16) {
+                        SettingsField("New cleanup model") {
                             Picker("Cleanup model", selection: $transcriptionLabController.selectedCleanupModelKind) {
                                 Text(TextCleanupManager.fastModel.displayName).tag(LocalCleanupModelKind.fast)
                                 Text(TextCleanupManager.fullModel.displayName).tag(LocalCleanupModelKind.full)
@@ -741,36 +815,38 @@ struct SettingsView: View {
                             .labelsHidden()
                             .frame(maxWidth: 320, alignment: .leading)
                         }
-                    }
 
-                    HStack(spacing: 12) {
                         Button {
                             Task {
-                                await transcriptionLabController.rerun(prompt: appState.cleanupPrompt)
+                                await transcriptionLabController.rerunCleanup(prompt: appState.cleanupPrompt)
                             }
                         } label: {
                             HStack {
-                                if transcriptionLabController.isRunning {
+                                if transcriptionLabController.isRunningCleanup {
                                     ProgressView()
                                         .controlSize(.small)
                                 } else {
                                     Image(systemName: "arrow.trianglehead.clockwise")
                                 }
-                                Text(transcriptionLabController.isRunning ? "Rerunning..." : "Rerun Recording")
+                                Text(transcriptionLabController.isRunningCleanup ? "Rerunning..." : "Rerun Cleanup")
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(transcriptionLabController.isRunning)
+                        .disabled(transcriptionLabController.runningStage != nil)
 
                         Button("Reset Prompt to Default") {
                             appState.cleanupPrompt = TextCleaner.defaultPrompt
                         }
                         .buttonStyle(.bordered)
-                        .disabled(transcriptionLabController.isRunning)
+                        .disabled(transcriptionLabController.runningStage != nil)
                     }
 
                     SettingsField("Cleanup prompt") {
-                        BorderedTextEditor(text: $appState.cleanupPrompt, minHeight: 180)
+                        BorderedTextEditor(
+                            text: $appState.cleanupPrompt,
+                            minimumHeight: 84,
+                            maximumHeight: 128
+                        )
                     }
 
                     if let errorMessage = transcriptionLabController.errorMessage {
@@ -784,15 +860,30 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    TranscriptionLabResultStack(
-                        rawTitle: "Experiment raw transcription",
-                        rawText: transcriptionLabController.experimentRawTranscription.isEmpty
-                            ? "Run the selected recording through a speech model to see the raw transcript here."
-                            : transcriptionLabController.experimentRawTranscription,
-                        correctedTitle: "Experiment corrected transcription",
-                        correctedText: transcriptionLabController.experimentCorrectedTranscription.isEmpty
-                            ? "The cleanup result will appear here after the rerun finishes."
-                            : transcriptionLabController.experimentCorrectedTranscription
+                    if let windowContents = entry.windowContext?.windowContents,
+                       !windowContents.isEmpty {
+                        DisclosureGroup("Show captured OCR context") {
+                            ReadOnlyTextPane(
+                                text: windowContents,
+                                minimumHeight: 96,
+                                maximumHeight: 220,
+                                monospaced: true
+                            )
+                            .padding(.top, 10)
+                        }
+                        .font(.callout)
+                    }
+
+                    Text("Experiment corrected transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: transcriptionLabController.experimentCorrectedTranscription.isEmpty
+                            ? "Run cleanup to see the new corrected output here."
+                            : transcriptionLabController.experimentCorrectedTranscription,
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
                     )
                 }
             }
@@ -889,7 +980,7 @@ private struct CorrectionsEditor: View {
             Text(title)
                 .font(.subheadline.weight(.medium))
 
-            BorderedTextEditor(text: text, minHeight: 96)
+            BorderedTextEditor(text: text, minimumHeight: 96, maximumHeight: 160)
 
             Text(prompt)
                 .font(.caption)
@@ -996,13 +1087,13 @@ private struct TranscriptionLabResultStack<SupplementaryContent: View>: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(rawTitle)
                     .font(.subheadline.weight(.medium))
-                ReadOnlyTextPane(text: rawText, minHeight: 96, monospaced: false)
+                ReadOnlyTextPane(text: rawText, minimumHeight: 72, maximumHeight: 180, monospaced: false)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(correctedTitle)
                     .font(.subheadline.weight(.medium))
-                ReadOnlyTextPane(text: correctedText, minHeight: 120, monospaced: false)
+                ReadOnlyTextPane(text: correctedText, minimumHeight: 72, maximumHeight: 180, monospaced: false)
             }
         }
     }
@@ -1042,7 +1133,8 @@ private struct TranscriptionLabMetadataSummary: View {
 
 private struct ReadOnlyTextPane: View {
     let text: String
-    let minHeight: CGFloat
+    let minimumHeight: CGFloat
+    let maximumHeight: CGFloat
     let monospaced: Bool
 
     var body: some View {
@@ -1053,7 +1145,7 @@ private struct ReadOnlyTextPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
         }
-        .frame(minHeight: minHeight)
+        .frame(height: textPaneHeight(for: text, minimumHeight: minimumHeight, maximumHeight: maximumHeight))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .textBackgroundColor))
@@ -1067,13 +1159,14 @@ private struct ReadOnlyTextPane: View {
 
 private struct BorderedTextEditor: View {
     let text: Binding<String>
-    let minHeight: CGFloat
+    let minimumHeight: CGFloat
+    let maximumHeight: CGFloat
 
     var body: some View {
         TextEditor(text: text)
             .font(.system(.body, design: .monospaced))
             .scrollContentBackground(.hidden)
-            .frame(minHeight: minHeight)
+            .frame(height: textPaneHeight(for: text.wrappedValue, minimumHeight: minimumHeight, maximumHeight: maximumHeight))
             .padding(10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1084,4 +1177,14 @@ private struct BorderedTextEditor: View {
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
             )
     }
+}
+
+private func textPaneHeight(
+    for text: String,
+    minimumHeight: CGFloat,
+    maximumHeight: CGFloat
+) -> CGFloat {
+    let lineCount = max(text.components(separatedBy: "\n").count, 1)
+    let estimatedHeight = CGFloat(lineCount) * 20 + 28
+    return min(max(estimatedHeight, minimumHeight), maximumHeight)
 }

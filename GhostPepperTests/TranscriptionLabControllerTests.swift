@@ -18,13 +18,14 @@ final class TranscriptionLabControllerTests: XCTestCase {
         let controller = TranscriptionLabController(
             defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
             loadEntries: { [olderEntry, newerEntry] },
-            runExperiment: { _, _, _, _ in
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in
                 XCTFail("should not rerun during reload")
-                return TranscriptionLabRunResult(
-                    rawTranscription: "",
-                    correctedTranscription: "",
-                    cleanupUsedFallback: false
-                )
+                return ""
+            },
+            runCleanup: { _, _, _, _ in
+                XCTFail("should not rerun during reload")
+                return TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
             }
         )
 
@@ -36,28 +37,31 @@ final class TranscriptionLabControllerTests: XCTestCase {
         XCTAssertEqual(controller.selectedCleanupModelKind, .full)
     }
 
-    func testRerunUpdatesExperimentOutputs() async {
+    func testStageRerunsUpdateExperimentOutputs() async {
         let entry = makeEntry(
             createdAt: Date(),
             speechModelID: "openai_whisper-small.en",
             cleanupModelName: "Qwen 3 1.7B (fast cleanup)"
         )
-        var executedPrompt: String?
+        var executedCleanupPrompt: String?
         var executedSpeechModelID: String?
         var executedCleanupModelKind: LocalCleanupModelKind?
+        var cleanupInputText: String?
         let controller = TranscriptionLabController(
             defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
             loadEntries: { [entry] },
-            runExperiment: { rerunEntry, speechModelID, cleanupModelKind, prompt in
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { rerunEntry, speechModelID in
                 XCTAssertEqual(rerunEntry.id, entry.id)
-                executedPrompt = prompt
                 executedSpeechModelID = speechModelID
+                return "raw rerun"
+            },
+            runCleanup: { rerunEntry, rawText, cleanupModelKind, prompt in
+                XCTAssertEqual(rerunEntry.id, entry.id)
+                cleanupInputText = rawText
+                executedCleanupPrompt = prompt
                 executedCleanupModelKind = cleanupModelKind
-                return TranscriptionLabRunResult(
-                    rawTranscription: "raw rerun",
-                    correctedTranscription: "clean rerun",
-                    cleanupUsedFallback: false
-                )
+                return TranscriptionLabCleanupResult(correctedTranscription: "clean rerun", cleanupUsedFallback: false)
             }
         )
         controller.reloadEntries()
@@ -65,15 +69,17 @@ final class TranscriptionLabControllerTests: XCTestCase {
         controller.selectedSpeechModelID = "fluid_parakeet-v3"
         controller.selectedCleanupModelKind = .full
 
-        await controller.rerun(prompt: "custom prompt")
+        await controller.rerunTranscription()
+        await controller.rerunCleanup(prompt: "custom prompt")
 
-        XCTAssertEqual(executedPrompt, "custom prompt")
         XCTAssertEqual(executedSpeechModelID, "fluid_parakeet-v3")
+        XCTAssertEqual(cleanupInputText, "raw rerun")
+        XCTAssertEqual(executedCleanupPrompt, "custom prompt")
         XCTAssertEqual(executedCleanupModelKind, .full)
         XCTAssertEqual(controller.experimentRawTranscription, "raw rerun")
         XCTAssertEqual(controller.experimentCorrectedTranscription, "clean rerun")
         XCTAssertNil(controller.errorMessage)
-        XCTAssertFalse(controller.isRunning)
+        XCTAssertNil(controller.runningStage)
     }
 
     private func makeEntry(

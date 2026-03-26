@@ -3,12 +3,22 @@ import Foundation
 @MainActor
 final class TranscriptionLabController: ObservableObject {
     typealias EntryLoader = () throws -> [TranscriptionLabEntry]
-    typealias ExperimentRunner = (
+    typealias AudioURLProvider = (TranscriptionLabEntry) -> URL
+    typealias TranscriptionRunner = (
         _ entry: TranscriptionLabEntry,
-        _ speechModelID: String,
+        _ speechModelID: String
+    ) async throws -> String
+    typealias CleanupRunner = (
+        _ entry: TranscriptionLabEntry,
+        _ rawTranscription: String,
         _ cleanupModelKind: LocalCleanupModelKind,
         _ prompt: String
-    ) async throws -> TranscriptionLabRunResult
+    ) async throws -> TranscriptionLabCleanupResult
+
+    enum RunningStage {
+        case transcription
+        case cleanup
+    }
 
     @Published private(set) var entries: [TranscriptionLabEntry] = []
     @Published var selectedEntryID: UUID?
@@ -16,22 +26,28 @@ final class TranscriptionLabController: ObservableObject {
     @Published var selectedCleanupModelKind: LocalCleanupModelKind
     @Published private(set) var experimentRawTranscription: String = ""
     @Published private(set) var experimentCorrectedTranscription: String = ""
-    @Published private(set) var isRunning = false
+    @Published private(set) var runningStage: RunningStage?
     @Published private(set) var errorMessage: String?
 
     private let loadEntries: EntryLoader
-    private let runExperiment: ExperimentRunner
+    private let audioURLForEntry: AudioURLProvider
+    private let runTranscription: TranscriptionRunner
+    private let runCleanup: CleanupRunner
 
     init(
         defaultSpeechModelID: String,
         defaultCleanupModelKind: LocalCleanupModelKind = .full,
         loadEntries: @escaping EntryLoader,
-        runExperiment: @escaping ExperimentRunner
+        audioURLForEntry: @escaping AudioURLProvider,
+        runTranscription: @escaping TranscriptionRunner,
+        runCleanup: @escaping CleanupRunner
     ) {
         self.selectedSpeechModelID = defaultSpeechModelID
         self.selectedCleanupModelKind = defaultCleanupModelKind
         self.loadEntries = loadEntries
-        self.runExperiment = runExperiment
+        self.audioURLForEntry = audioURLForEntry
+        self.runTranscription = runTranscription
+        self.runCleanup = runCleanup
     }
 
     var selectedEntry: TranscriptionLabEntry? {
@@ -40,6 +56,26 @@ final class TranscriptionLabController: ObservableObject {
         }
 
         return entries.first { $0.id == selectedEntryID }
+    }
+
+    var isRunningTranscription: Bool {
+        runningStage == .transcription
+    }
+
+    var isRunningCleanup: Bool {
+        runningStage == .cleanup
+    }
+
+    var activeRawTranscriptionForCleanup: String {
+        if !experimentRawTranscription.isEmpty {
+            return experimentRawTranscription
+        }
+
+        return selectedEntry?.rawTranscription ?? ""
+    }
+
+    func audioURL(for entry: TranscriptionLabEntry) -> URL {
+        audioURLForEntry(entry)
     }
 
     func reloadEntries() {
@@ -85,24 +121,18 @@ final class TranscriptionLabController: ObservableObject {
         errorMessage = nil
     }
 
-    func rerun(prompt: String) async {
+    func rerunTranscription() async {
         guard let entry = selectedEntry else {
             errorMessage = "Choose a saved recording first."
             return
         }
 
-        isRunning = true
+        runningStage = .transcription
         errorMessage = nil
 
         do {
-            let result = try await runExperiment(
-                entry,
-                selectedSpeechModelID,
-                selectedCleanupModelKind,
-                prompt
-            )
-            experimentRawTranscription = result.rawTranscription
-            experimentCorrectedTranscription = result.correctedTranscription
+            experimentRawTranscription = try await runTranscription(entry, selectedSpeechModelID)
+            experimentCorrectedTranscription = ""
         } catch let error as TranscriptionLabRunnerError {
             switch error {
             case .pipelineBusy:
@@ -116,7 +146,46 @@ final class TranscriptionLabController: ObservableObject {
             errorMessage = "The lab rerun failed."
         }
 
-        isRunning = false
+        runningStage = nil
+    }
+
+    func rerunCleanup(prompt: String) async {
+        guard let entry = selectedEntry else {
+            errorMessage = "Choose a saved recording first."
+            return
+        }
+
+        let rawTranscription = activeRawTranscriptionForCleanup
+        guard !rawTranscription.isEmpty else {
+            errorMessage = "Run transcription first or choose a recording with a raw transcription."
+            return
+        }
+
+        runningStage = .cleanup
+        errorMessage = nil
+
+        do {
+            let result = try await runCleanup(
+                entry,
+                rawTranscription,
+                selectedCleanupModelKind,
+                prompt
+            )
+            experimentCorrectedTranscription = result.correctedTranscription
+        } catch let error as TranscriptionLabRunnerError {
+            switch error {
+            case .pipelineBusy:
+                errorMessage = "Ghost Pepper is busy with another recording or lab run."
+            case .missingAudio:
+                errorMessage = "This saved recording no longer has playable audio."
+            case .transcriptionFailed:
+                errorMessage = "Ghost Pepper could not produce input for cleanup."
+            }
+        } catch {
+            errorMessage = "The cleanup rerun failed."
+        }
+
+        runningStage = nil
     }
 
     private static func cleanupModelKind(for entry: TranscriptionLabEntry) -> LocalCleanupModelKind {
