@@ -680,9 +680,9 @@ class AppState: ObservableObject {
         }
 
         let entryID = UUID()
-        let audioFileName = "\(entryID.uuidString).bin"
+        let audioFileName = "\(entryID.uuidString).wav"
         do {
-            let audioData = try AudioRecorder.serializeAudioBuffer(audioBuffer)
+            let audioData = try AudioRecorder.serializePlayableArchiveAudioBuffer(audioBuffer)
             let entry = TranscriptionLabEntry(
                 id: entryID,
                 createdAt: Date(),
@@ -857,7 +857,7 @@ class AppState: ObservableObject {
         TranscriptionLabRunner(
             loadAudioBuffer: { [transcriptionLabStore] entry in
                 let audioData = try Data(contentsOf: transcriptionLabStore.audioURL(for: entry.audioFileName))
-                return try AudioRecorder.deserializeAudioBuffer(from: audioData)
+                return try AudioRecorder.deserializeArchivedAudioBuffer(from: audioData)
             },
             loadSpeechModel: { [modelManager] modelID in
                 await modelManager.loadModel(name: modelID)

@@ -22,4 +22,20 @@ final class AudioRecorderTests: XCTestCase {
 
         XCTAssertEqual(decoded, samples)
     }
+
+    func testPlayableArchiveSerializationCreatesWAVDataThatRoundTripsSamples() throws {
+        let samples: [Float] = [0.25, -0.5, 0.75, 0.0]
+
+        let data = try AudioRecorder.serializePlayableArchiveAudioBuffer(samples)
+        let riffHeader = String(decoding: data.prefix(4), as: UTF8.self)
+        let waveHeader = String(decoding: data.dropFirst(8).prefix(4), as: UTF8.self)
+        let decoded = try AudioRecorder.deserializeArchivedAudioBuffer(from: data)
+
+        XCTAssertEqual(riffHeader, "RIFF")
+        XCTAssertEqual(waveHeader, "WAVE")
+        XCTAssertEqual(decoded.count, samples.count)
+        for (decodedSample, expectedSample) in zip(decoded, samples) {
+            XCTAssertEqual(decodedSample, expectedSample, accuracy: 0.0001)
+        }
+    }
 }

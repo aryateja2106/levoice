@@ -703,7 +703,9 @@ struct SettingsView: View {
     }
 
     private func transcriptionLabDetail(for entry: TranscriptionLabEntry) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
+        let canPlayRecording = transcriptionLabController.audioURL(for: entry).pathExtension.lowercased() == "wav"
+
+        return VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .center, spacing: 12) {
                 Button {
                     transcriptionLabController.closeDetail()
@@ -730,9 +732,16 @@ struct SettingsView: View {
                             Label("Play recording", systemImage: "play.fill")
                         }
                         .buttonStyle(.bordered)
+                        .disabled(!canPlayRecording)
 
                         Text("Use this recording as the fixed input for transcription and cleanup experiments.")
                             .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !canPlayRecording {
+                        Text("Playback is available for newly archived recordings.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -749,6 +758,18 @@ struct SettingsView: View {
                         maximumHeight: 180,
                         monospaced: false
                     )
+
+                    Text("New raw transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: transcriptionLabController.displayedExperimentRawTranscription,
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
+                    )
+
+                    Divider()
 
                     HStack(alignment: .bottom, spacing: 16) {
                         SettingsField("New speech model") {
@@ -779,16 +800,6 @@ struct SettingsView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(transcriptionLabController.runningStage != nil)
                     }
-
-                    Text("Experiment raw transcription")
-                        .font(.subheadline.weight(.medium))
-
-                    ReadOnlyTextPane(
-                        text: transcriptionLabController.displayedExperimentRawTranscription,
-                        minimumHeight: 72,
-                        maximumHeight: 180,
-                        monospaced: false
-                    )
                 }
             }
 
@@ -803,6 +814,18 @@ struct SettingsView: View {
                         maximumHeight: 180,
                         monospaced: false
                     )
+
+                    Text("New corrected transcription")
+                        .font(.subheadline.weight(.medium))
+
+                    ReadOnlyTextPane(
+                        text: transcriptionLabController.displayedExperimentCorrectedTranscription,
+                        minimumHeight: 72,
+                        maximumHeight: 180,
+                        monospaced: false
+                    )
+
+                    Divider()
 
                     HStack(alignment: .bottom, spacing: 16) {
                         SettingsField("New cleanup model") {
@@ -871,16 +894,6 @@ struct SettingsView: View {
                         }
                         .font(.callout)
                     }
-
-                    Text("Experiment corrected transcription")
-                        .font(.subheadline.weight(.medium))
-
-                    ReadOnlyTextPane(
-                        text: transcriptionLabController.displayedExperimentCorrectedTranscription,
-                        minimumHeight: 72,
-                        maximumHeight: 180,
-                        monospaced: false
-                    )
                 }
             }
         }

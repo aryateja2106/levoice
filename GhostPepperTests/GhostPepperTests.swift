@@ -897,6 +897,7 @@ final class GhostPepperTests: XCTestCase {
         let entries = try labStore.loadEntries()
 
         XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(URL(fileURLWithPath: entries[0].audioFileName).pathExtension, "wav")
         XCTAssertEqual(entries[0].windowContext, OCRContext(windowContents: "Qwen 3.5 4B"))
         XCTAssertEqual(entries[0].rawTranscription, "The default should be Quen three point five four b.")
         XCTAssertEqual(entries[0].correctedTranscription, "The default should be Qwen 3.5 4B.")
@@ -931,6 +932,7 @@ final class GhostPepperTests: XCTestCase {
         let entries = try labStore.loadEntries()
 
         XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(URL(fileURLWithPath: entries[0].audioFileName).pathExtension, "wav")
         XCTAssertNil(entries[0].rawTranscription)
         XCTAssertNil(entries[0].correctedTranscription)
     }

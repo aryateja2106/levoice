@@ -28,6 +28,40 @@ final class AudioRecorder {
         }
     }
 
+    static func serializePlayableArchiveAudioBuffer(_ samples: [Float]) throws -> Data {
+        let sampleRate = UInt32(16_000)
+        let channelCount = UInt16(1)
+        let bitsPerSample = UInt16(16)
+        let bytesPerSample = Int(bitsPerSample / 8)
+        let dataSize = samples.count * bytesPerSample
+        let byteRate = sampleRate * UInt32(channelCount) * UInt32(bitsPerSample) / 8
+        let blockAlign = channelCount * bitsPerSample / 8
+        let riffChunkSize = UInt32(36 + dataSize)
+
+        var data = Data()
+        data.append("RIFF".data(using: .ascii)!)
+        data.append(contentsOf: riffChunkSize.littleEndianBytes)
+        data.append("WAVE".data(using: .ascii)!)
+        data.append("fmt ".data(using: .ascii)!)
+        data.append(contentsOf: UInt32(16).littleEndianBytes)
+        data.append(contentsOf: UInt16(1).littleEndianBytes)
+        data.append(contentsOf: channelCount.littleEndianBytes)
+        data.append(contentsOf: sampleRate.littleEndianBytes)
+        data.append(contentsOf: byteRate.littleEndianBytes)
+        data.append(contentsOf: blockAlign.littleEndianBytes)
+        data.append(contentsOf: bitsPerSample.littleEndianBytes)
+        data.append("data".data(using: .ascii)!)
+        data.append(contentsOf: UInt32(dataSize).littleEndianBytes)
+
+        for sample in samples {
+            let clamped = max(-1.0, min(1.0, sample))
+            let scaled = Int16((clamped * Float(Int16.max)).rounded())
+            data.append(contentsOf: scaled.littleEndianBytes)
+        }
+
+        return data
+    }
+
     static func deserializeAudioBuffer(from data: Data) throws -> [Float] {
         let stride = MemoryLayout<Float>.stride
         guard data.count.isMultiple(of: stride) else {
@@ -38,6 +72,14 @@ final class AudioRecorder {
             let floatBuffer = rawBuffer.bindMemory(to: Float.self)
             return Array(floatBuffer)
         }
+    }
+
+    static func deserializeArchivedAudioBuffer(from data: Data) throws -> [Float] {
+        if data.starts(with: Data("RIFF".utf8)) {
+            return try deserializeWAVAudioBuffer(from: data)
+        }
+
+        return try deserializeAudioBuffer(from: data)
     }
 
     /// Clears the in-memory audio buffer.
@@ -140,6 +182,70 @@ final class AudioRecorder {
 }
 
 // MARK: - Errors
+
+private extension AudioRecorder {
+    static func deserializeWAVAudioBuffer(from data: Data) throws -> [Float] {
+        guard data.count >= 44,
+              data.starts(with: Data("RIFF".utf8)),
+              data.dropFirst(8).starts(with: Data("WAVE".utf8)) else {
+            throw AudioRecorderPersistenceError.invalidSerializedAudioData
+        }
+
+        var offset = 12
+        var audioFormat: UInt16?
+        var bitsPerSample: UInt16?
+        var channelCount: UInt16?
+        var sampleData = Data()
+
+        while offset + 8 <= data.count {
+            let chunkIDData = data[offset..<(offset + 4)]
+            let chunkSize = UInt32(littleEndian: data[(offset + 4)..<(offset + 8)].withUnsafeBytes { $0.load(as: UInt32.self) })
+            offset += 8
+
+            guard offset + Int(chunkSize) <= data.count else {
+                throw AudioRecorderPersistenceError.invalidSerializedAudioData
+            }
+
+            let chunkData = data[offset..<(offset + Int(chunkSize))]
+            let chunkID = String(decoding: chunkIDData, as: UTF8.self)
+
+            if chunkID == "fmt " {
+                guard chunkData.count >= 16 else {
+                    throw AudioRecorderPersistenceError.invalidSerializedAudioData
+                }
+
+                audioFormat = UInt16(littleEndian: chunkData[chunkData.startIndex..<(chunkData.startIndex + 2)].withUnsafeBytes { $0.load(as: UInt16.self) })
+                channelCount = UInt16(littleEndian: chunkData[(chunkData.startIndex + 2)..<(chunkData.startIndex + 4)].withUnsafeBytes { $0.load(as: UInt16.self) })
+                bitsPerSample = UInt16(littleEndian: chunkData[(chunkData.startIndex + 14)..<(chunkData.startIndex + 16)].withUnsafeBytes { $0.load(as: UInt16.self) })
+            } else if chunkID == "data" {
+                sampleData = Data(chunkData)
+            }
+
+            offset += Int(chunkSize)
+            if chunkSize.isMultiple(of: 2) == false {
+                offset += 1
+            }
+        }
+
+        guard audioFormat == 1,
+              channelCount == 1,
+              bitsPerSample == 16,
+              sampleData.count.isMultiple(of: 2) else {
+            throw AudioRecorderPersistenceError.invalidSerializedAudioData
+        }
+
+        return sampleData.withUnsafeBytes { rawBuffer in
+            let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
+            return int16Buffer.map { Float($0) / Float(Int16.max) }
+        }
+    }
+}
+
+private extension FixedWidthInteger {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: littleEndian) { Array($0) }
+    }
+}
 
 enum AudioRecorderError: Error, LocalizedError {
     case noInputAvailable
