@@ -312,10 +312,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(selectedSection.title)
                     .font(.system(size: 28, weight: .semibold))
-                Text(selectedSection.subtitle)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if selectedSection != .transcriptionLab {
+                    Text(selectedSection.subtitle)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             switch selectedSection {
@@ -714,12 +716,6 @@ struct SettingsView: View {
                     Label("Back to recordings", systemImage: "chevron.left")
                 }
                 .buttonStyle(.bordered)
-
-                Spacer(minLength: 12)
-
-                Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 16) {
