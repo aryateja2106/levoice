@@ -868,7 +868,37 @@ struct SettingsView: View {
                 )
 
                 HStack(alignment: .center, spacing: 12) {
-                    Text("Use cleanup model")
+                    Toggle(
+                        "Use captured OCR",
+                        isOn: $transcriptionLabController.usesCapturedOCR
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(entry.windowContext == nil || transcriptionLabController.runningStage != nil)
+
+                    Button(
+                        transcriptionLabController.showsWindowOCRContext ? "Hide window OCR" : "Show window OCR"
+                    ) {
+                        transcriptionLabController.showsWindowOCRContext.toggle()
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(entry.windowContext == nil)
+
+                    Spacer()
+                }
+
+                if transcriptionLabController.showsWindowOCRContext,
+                   let windowContents = entry.windowContext?.windowContents,
+                   !windowContents.isEmpty {
+                    ReadOnlyTextPane(
+                        text: windowContents,
+                        minimumHeight: 96,
+                        maximumHeight: 220,
+                        monospaced: true
+                    )
+                }
+
+                HStack(alignment: .center, spacing: 12) {
+                    Text("Clean with")
                         .font(.subheadline.weight(.medium))
 
                     Picker("Cleanup model", selection: $transcriptionLabController.selectedCleanupModelKind) {
@@ -878,19 +908,19 @@ struct SettingsView: View {
                     .labelsHidden()
                     .frame(maxWidth: 300, alignment: .leading)
 
-                    Button {
-                        transcriptionLabController.usesCapturedOCR.toggle()
-                    } label: {
-                        Label("Use OCR", systemImage: transcriptionLabController.usesCapturedOCR ? "checkmark.circle.fill" : "circle")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(entry.windowContext == nil || transcriptionLabController.runningStage != nil)
-
                     Button("Edit cleanup prompt") {
                         appState.showPromptEditor()
                     }
                     .buttonStyle(.bordered)
                     .disabled(transcriptionLabController.runningStage != nil)
+
+                    Button("Show full cleanup transcript") {
+                        if let transcript = transcriptionLabController.latestCleanupTranscript {
+                            appState.showCleanupTranscript(transcript)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(transcriptionLabController.latestCleanupTranscript == nil)
 
                     Button {
                         Task {
@@ -931,20 +961,6 @@ struct SettingsView: View {
                     Text(errorMessage)
                         .font(.callout)
                         .foregroundStyle(.red)
-                }
-
-                if let windowContents = entry.windowContext?.windowContents,
-                   !windowContents.isEmpty {
-                    DisclosureGroup("Show captured OCR context") {
-                        ReadOnlyTextPane(
-                            text: windowContents,
-                            minimumHeight: 96,
-                            maximumHeight: 220,
-                            monospaced: true
-                        )
-                        .padding(.top, 10)
-                    }
-                    .font(.callout)
                 }
             }
         }
@@ -993,18 +1009,13 @@ private struct SettingsCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.title3.weight(.semibold))
 
             content
         }
-        .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
     }
 }
 

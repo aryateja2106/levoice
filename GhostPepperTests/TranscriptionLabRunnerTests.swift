@@ -41,6 +41,10 @@ final class TranscriptionLabRunnerTests: XCTestCase {
                     performance: TextCleanerPerformance(
                         modelCallDuration: 0.4,
                         postProcessDuration: 0.01
+                    ),
+                    transcript: TextCleanerTranscript(
+                        prompt: prompt,
+                        rawOutput: "The default should be Qwen 3.5 4B."
                     )
                 )
             },
@@ -68,7 +72,10 @@ final class TranscriptionLabRunnerTests: XCTestCase {
         XCTAssertEqual(rawTranscription, "The default should be Quen three point five four b.")
         XCTAssertEqual(result.correctedTranscription, "The default should be Qwen 3.5 4B.")
         XCTAssertFalse(result.cleanupUsedFallback)
+        XCTAssertEqual(result.transcript?.inputText, "The default should be Quen three point five four b.")
+        XCTAssertEqual(result.transcript?.rawModelOutput, "The default should be Qwen 3.5 4B.")
         XCTAssertTrue(cleanedPrompts[0].contains("Qwen 3.5 4B"))
+        XCTAssertTrue(result.transcript?.prompt.contains("Qwen 3.5 4B") == true)
     }
 
     func testRunnerReturnsBusyWhenPipelineCannotBeAcquired() async {
@@ -136,6 +143,7 @@ final class TranscriptionLabRunnerTests: XCTestCase {
 
         XCTAssertTrue(result.cleanupUsedFallback)
         XCTAssertEqual(result.correctedTranscription, "raw text")
+        XCTAssertNil(result.transcript)
     }
 
     private func makeEntry() -> TranscriptionLabEntry {

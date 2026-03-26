@@ -32,10 +32,10 @@ final class TranscriptionLabControllerTests: XCTestCase {
 
         controller.reloadEntries()
 
-        XCTAssertEqual(controller.entries.map(\.id), [newerEntry.id, olderEntry.id])
+        XCTAssertEqual(controller.entries.map { $0.id }, [newerEntry.id, olderEntry.id])
         XCTAssertNil(controller.selectedEntryID)
         XCTAssertEqual(controller.selectedSpeechModelID, SpeechModelCatalog.defaultModelID)
-        XCTAssertEqual(controller.selectedCleanupModelKind, .full)
+        XCTAssertEqual(controller.selectedCleanupModelKind, LocalCleanupModelKind.full)
     }
 
     func testStageRerunsUpdateExperimentOutputs() async {
@@ -74,7 +74,15 @@ final class TranscriptionLabControllerTests: XCTestCase {
                 executedCleanupModelKind = cleanupModelKind
                 executedCleanupIncludesWindowContext = includeWindowContext
                 try? await Task.sleep(nanoseconds: 20_000_000)
-                return TranscriptionLabCleanupResult(correctedTranscription: "clean rerun", cleanupUsedFallback: false)
+                return TranscriptionLabCleanupResult(
+                    correctedTranscription: "clean rerun",
+                    cleanupUsedFallback: false,
+                    transcript: TranscriptionLabCleanupTranscript(
+                        prompt: prompt,
+                        inputText: rawText,
+                        rawModelOutput: "clean rerun raw"
+                    )
+                )
             }
         )
         controller.reloadEntries()
@@ -97,6 +105,9 @@ final class TranscriptionLabControllerTests: XCTestCase {
         XCTAssertEqual(controller.originalCleanupDuration, 0.91)
         XCTAssertNotNil(controller.experimentTranscriptionDuration)
         XCTAssertNotNil(controller.experimentCleanupDuration)
+        XCTAssertEqual(controller.latestCleanupTranscript?.prompt, "custom prompt")
+        XCTAssertEqual(controller.latestCleanupTranscript?.inputText, "raw rerun")
+        XCTAssertEqual(controller.latestCleanupTranscript?.rawModelOutput, "clean rerun raw")
         XCTAssertNil(controller.errorMessage)
         XCTAssertNil(controller.runningStage)
     }

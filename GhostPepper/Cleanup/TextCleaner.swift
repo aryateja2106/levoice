@@ -5,9 +5,25 @@ struct TextCleanerPerformance {
     let postProcessDuration: TimeInterval?
 }
 
+struct TextCleanerTranscript: Equatable {
+    let prompt: String
+    let rawOutput: String
+}
+
 struct TextCleanerResult {
     let text: String
     let performance: TextCleanerPerformance
+    let transcript: TextCleanerTranscript?
+
+    init(
+        text: String,
+        performance: TextCleanerPerformance,
+        transcript: TextCleanerTranscript? = nil
+    ) {
+        self.text = text
+        self.performance = performance
+        self.transcript = transcript
+    }
 }
 
 final class TextCleaner {
@@ -146,6 +162,10 @@ final class TextCleaner {
                 performance: TextCleanerPerformance(
                     modelCallDuration: modelCallDuration,
                     postProcessDuration: Date().timeIntervalSince(postProcessStart)
+                ),
+                transcript: TextCleanerTranscript(
+                    prompt: activePrompt,
+                    rawOutput: cleanedText
                 )
             )
         } catch {

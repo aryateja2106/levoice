@@ -49,6 +49,61 @@ final class PromptEditorController: NSObject, NSWindowDelegate {
     }
 }
 
+final class CleanupTranscriptWindowController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+    private var hostingController: NSHostingController<CleanupTranscriptView>?
+
+    func show(transcript: TranscriptionLabCleanupTranscript) {
+        let contentView = CleanupTranscriptView(transcript: transcript, onClose: { [weak self] in
+            self?.dismiss()
+        })
+
+        if let hostingController {
+            hostingController.rootView = contentView
+        } else {
+            hostingController = NSHostingController(rootView: contentView)
+        }
+
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 620),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Cleanup Transcript"
+        window.delegate = self
+        window.isReleasedWhenClosed = false
+        window.contentViewController = hostingController
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        self.window = window
+    }
+
+    func dismiss() {
+        if let window {
+            hide(window)
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        hide(sender)
+        return false
+    }
+
+    private func hide(_ window: NSWindow) {
+        window.makeFirstResponder(nil)
+        window.orderOut(nil)
+    }
+}
+
 struct PromptEditorView: View {
     @ObservedObject var appState: AppState
     let onClose: () -> Void
@@ -81,5 +136,71 @@ struct PromptEditorView: View {
         }
         .padding()
         .frame(minWidth: 450, minHeight: 350)
+    }
+}
+
+private struct CleanupTranscriptView: View {
+    let transcript: TranscriptionLabCleanupTranscript
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Cleanup Transcript")
+                .font(.headline)
+
+            Text("This shows the exact content sent to the cleanup model for the current lab rerun and the exact raw text it returned.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            transcriptSection(
+                title: "Sent to cleanup model",
+                text: """
+                System prompt:
+                \(transcript.prompt)
+
+                User input:
+                \(transcript.inputText)
+                """
+            )
+
+            transcriptSection(
+                title: "Returned by cleanup model",
+                text: transcript.rawModelOutput
+            )
+
+            HStack {
+                Spacer()
+
+                Button("Done") {
+                    onClose()
+                }
+                .keyboardShortcut(.return)
+            }
+        }
+        .padding()
+        .frame(minWidth: 700, minHeight: 560)
+    }
+
+    private func transcriptSection(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+
+            ScrollView {
+                Text(text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+        }
     }
 }

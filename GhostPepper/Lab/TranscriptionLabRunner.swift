@@ -9,6 +9,23 @@ enum TranscriptionLabRunnerError: Error, Equatable {
 struct TranscriptionLabCleanupResult: Equatable {
     let correctedTranscription: String
     let cleanupUsedFallback: Bool
+    let transcript: TranscriptionLabCleanupTranscript?
+
+    init(
+        correctedTranscription: String,
+        cleanupUsedFallback: Bool,
+        transcript: TranscriptionLabCleanupTranscript? = nil
+    ) {
+        self.correctedTranscription = correctedTranscription
+        self.cleanupUsedFallback = cleanupUsedFallback
+        self.transcript = transcript
+    }
+}
+
+struct TranscriptionLabCleanupTranscript: Equatable {
+    let prompt: String
+    let inputText: String
+    let rawModelOutput: String
 }
 
 @MainActor
@@ -91,7 +108,14 @@ final class TranscriptionLabRunner {
         let cleanedResult = await clean(rawTranscription, activePrompt, cleanupModelKind)
         return TranscriptionLabCleanupResult(
             correctedTranscription: cleanedResult.text,
-            cleanupUsedFallback: cleanedResult.performance.modelCallDuration == nil
+            cleanupUsedFallback: cleanedResult.performance.modelCallDuration == nil,
+            transcript: cleanedResult.transcript.map { transcript in
+                TranscriptionLabCleanupTranscript(
+                    prompt: transcript.prompt,
+                    inputText: rawTranscription,
+                    rawModelOutput: transcript.rawOutput
+                )
+            }
         )
     }
 }

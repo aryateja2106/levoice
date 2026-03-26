@@ -27,10 +27,12 @@ final class TranscriptionLabController: ObservableObject {
     @Published var selectedSpeechModelID: String
     @Published var selectedCleanupModelKind: LocalCleanupModelKind
     @Published var usesCapturedOCR = true
+    @Published var showsWindowOCRContext = false
     @Published private(set) var experimentRawTranscription: String = ""
     @Published private(set) var experimentCorrectedTranscription: String = ""
     @Published private(set) var experimentTranscriptionDuration: TimeInterval?
     @Published private(set) var experimentCleanupDuration: TimeInterval?
+    @Published private(set) var latestCleanupTranscript: TranscriptionLabCleanupTranscript?
     @Published private(set) var runningStage: RunningStage?
     @Published private(set) var errorMessage: String?
 
@@ -132,19 +134,23 @@ final class TranscriptionLabController: ObservableObject {
 
             selectedEntryID = nil
             usesCapturedOCR = true
+            showsWindowOCRContext = false
             experimentRawTranscription = ""
             experimentCorrectedTranscription = ""
             experimentTranscriptionDuration = nil
             experimentCleanupDuration = nil
+            latestCleanupTranscript = nil
             errorMessage = nil
         } catch {
             entries = []
             selectedEntryID = nil
             usesCapturedOCR = true
+            showsWindowOCRContext = false
             experimentRawTranscription = ""
             experimentCorrectedTranscription = ""
             experimentTranscriptionDuration = nil
             experimentCleanupDuration = nil
+            latestCleanupTranscript = nil
             originalStageTimingsByEntryID = [:]
             errorMessage = "Could not load saved recordings."
         }
@@ -159,20 +165,24 @@ final class TranscriptionLabController: ObservableObject {
         selectedSpeechModelID = SpeechModelCatalog.model(named: entry.speechModelID)?.name ?? selectedSpeechModelID
         selectedCleanupModelKind = Self.cleanupModelKind(for: entry)
         usesCapturedOCR = entry.windowContext != nil
+        showsWindowOCRContext = false
         experimentRawTranscription = ""
         experimentCorrectedTranscription = ""
         experimentTranscriptionDuration = nil
         experimentCleanupDuration = nil
+        latestCleanupTranscript = nil
         errorMessage = nil
     }
 
     func closeDetail() {
         selectedEntryID = nil
         usesCapturedOCR = true
+        showsWindowOCRContext = false
         experimentRawTranscription = ""
         experimentCorrectedTranscription = ""
         experimentTranscriptionDuration = nil
         experimentCleanupDuration = nil
+        latestCleanupTranscript = nil
         errorMessage = nil
     }
 
@@ -185,6 +195,7 @@ final class TranscriptionLabController: ObservableObject {
         runningStage = .transcription
         errorMessage = nil
         experimentTranscriptionDuration = nil
+        latestCleanupTranscript = nil
         let start = Date()
 
         do {
@@ -223,6 +234,7 @@ final class TranscriptionLabController: ObservableObject {
         runningStage = .cleanup
         errorMessage = nil
         experimentCleanupDuration = nil
+        latestCleanupTranscript = nil
         let start = Date()
 
         do {
@@ -235,6 +247,7 @@ final class TranscriptionLabController: ObservableObject {
             )
             experimentCorrectedTranscription = result.correctedTranscription
             experimentCleanupDuration = Date().timeIntervalSince(start)
+            latestCleanupTranscript = result.transcript
         } catch let error as TranscriptionLabRunnerError {
             switch error {
             case .pipelineBusy:

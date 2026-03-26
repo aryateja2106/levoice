@@ -538,6 +538,7 @@ class AppState: ObservableObject {
 
     private let settingsController = SettingsWindowController()
     private let promptEditorController = PromptEditorController()
+    private let cleanupTranscriptWindowController = CleanupTranscriptWindowController()
     private let debugLogWindowController = DebugLogWindowController()
 
     func showSettings() {
@@ -546,6 +547,10 @@ class AppState: ObservableObject {
 
     func showPromptEditor() {
         promptEditorController.show(appState: self)
+    }
+
+    func showCleanupTranscript(_ transcript: TranscriptionLabCleanupTranscript) {
+        cleanupTranscriptWindowController.show(transcript: transcript)
     }
 
     func showDebugLog() {
