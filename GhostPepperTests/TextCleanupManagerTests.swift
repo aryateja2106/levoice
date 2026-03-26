@@ -48,16 +48,19 @@ final class TextCleanupManagerTests: XCTestCase {
         )
     }
 
-    func testAutomaticPolicyPrefersFastForShortInput() {
+    func testCleanupModelPoliciesListOnlyConcreteModels() {
+        XCTAssertEqual(LocalCleanupModelPolicy.allCases, [.fastOnly, .fullOnly])
+    }
+
+    func testDefaultPolicyUsesFullModel() {
         let manager = TextCleanupManager(
-            localModelPolicy: .automatic,
             fastModelAvailabilityOverride: true,
             fullModelAvailabilityOverride: true
         )
 
         XCTAssertEqual(
             manager.selectedModelKind(wordCount: 4, isQuestion: false),
-            .fast
+            .full
         )
     }
 
@@ -100,11 +103,11 @@ final class TextCleanupManagerTests: XCTestCase {
         )
     }
 
-    func testAutomaticPolicyTreatsFastModelAsUsableWhenFullModelIsUnavailable() {
+    func testFullOnlyPolicyTreatsFullModelAsUsableWhenAvailable() {
         let manager = TextCleanupManager(
-            localModelPolicy: .automatic,
-            fastModelAvailabilityOverride: true,
-            fullModelAvailabilityOverride: false
+            localModelPolicy: .fullOnly,
+            fastModelAvailabilityOverride: false,
+            fullModelAvailabilityOverride: true
         )
 
         XCTAssertTrue(manager.hasUsableModelForCurrentPolicy)
@@ -123,14 +126,14 @@ final class TextCleanupManagerTests: XCTestCase {
     func testCleanupSuppressesThinkingForProductionCleanupCalls() async {
         var capturedThinkingMode: CleanupModelProbeThinkingMode?
         let manager = TextCleanupManager(
-            localModelPolicy: .automatic,
+            localModelPolicy: .fullOnly,
             fastModelAvailabilityOverride: true,
-            fullModelAvailabilityOverride: false,
+            fullModelAvailabilityOverride: true,
             probeExecutionOverride: { _, _, _, thinkingMode in
                 capturedThinkingMode = thinkingMode
                 return CleanupModelProbeRawResult(
-                    modelKind: .fast,
-                    modelDisplayName: TextCleanupManager.fastModel.displayName,
+                    modelKind: .full,
+                    modelDisplayName: TextCleanupManager.fullModel.displayName,
                     rawOutput: "That worked really well.",
                     elapsed: 0.01
                 )
@@ -160,9 +163,9 @@ final class TextCleanupManagerTests: XCTestCase {
     func testCleanupSerializesOverlappingRequests() async {
         let harness = ProbeConcurrencyHarness()
         let manager = TextCleanupManager(
-            localModelPolicy: .automatic,
+            localModelPolicy: .fullOnly,
             fastModelAvailabilityOverride: true,
-            fullModelAvailabilityOverride: false,
+            fullModelAvailabilityOverride: true,
             probeExecutionOverride: { text, _, _, _ in
                 await harness.run(text: text)
             }

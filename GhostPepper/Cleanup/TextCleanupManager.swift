@@ -111,13 +111,9 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
     static let cleanupModels = [fastModel, fullModel]
 
-    static let shortInputThreshold = 15
-
     var isReady: Bool { state == .ready }
     var hasUsableModelForCurrentPolicy: Bool {
         switch localModelPolicy {
-        case .automatic:
-            return hasFastModel || hasFullModel
         case .fastOnly:
             return hasFastModel
         case .fullOnly:
@@ -151,7 +147,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
         let storedPolicy = LocalCleanupModelPolicy(
             rawValue: defaults.string(forKey: Self.localModelPolicyDefaultsKey) ?? ""
-        ) ?? .automatic
+        ) ?? .fullOnly
         let initialPolicy = localModelPolicy ?? storedPolicy
         self.localModelPolicy = initialPolicy
         defaults.set(initialPolicy.rawValue, forKey: Self.localModelPolicyDefaultsKey)
@@ -159,24 +155,6 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
 
     func selectedModelKind(wordCount: Int, isQuestion: Bool) -> LocalCleanupModelKind? {
         switch localModelPolicy {
-        case .automatic:
-            if isQuestion || wordCount > Self.shortInputThreshold {
-                if hasFullModel {
-                    return .full
-                }
-                if hasFastModel {
-                    return .fast
-                }
-                return nil
-            }
-
-            if hasFastModel {
-                return .fast
-            }
-            if hasFullModel {
-                return .full
-            }
-            return nil
         case .fastOnly:
             return hasFastModel ? .fast : nil
         case .fullOnly:
