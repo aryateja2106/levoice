@@ -53,7 +53,10 @@ final class TextCleanupManagerTests: XCTestCase {
     }
 
     func testDefaultPolicyUsesFullModel() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
         let manager = TextCleanupManager(
+            defaults: defaults,
             fastModelAvailabilityOverride: true,
             fullModelAvailabilityOverride: true
         )
@@ -123,7 +126,7 @@ final class TextCleanupManagerTests: XCTestCase {
         XCTAssertFalse(manager.hasUsableModelForCurrentPolicy)
     }
 
-    func testCleanupSuppressesThinkingForProductionCleanupCalls() async {
+    func testCleanupSuppressesThinkingForProductionCleanupCalls() async throws {
         var capturedThinkingMode: CleanupModelProbeThinkingMode?
         let manager = TextCleanupManager(
             localModelPolicy: .fullOnly,
@@ -140,7 +143,7 @@ final class TextCleanupManagerTests: XCTestCase {
             }
         )
 
-        let result = await manager.clean(text: "That worked really well.", prompt: "unused prompt")
+        let result = try await manager.clean(text: "That worked really well.", prompt: "unused prompt")
 
         XCTAssertEqual(result, "That worked really well.")
         XCTAssertEqual(capturedThinkingMode, .suppressed)
@@ -160,7 +163,7 @@ final class TextCleanupManagerTests: XCTestCase {
         XCTAssertEqual(shutdownCount, 2)
     }
 
-    func testCleanupSerializesOverlappingRequests() async {
+    func testCleanupSerializesOverlappingRequests() async throws {
         let harness = ProbeConcurrencyHarness()
         let manager = TextCleanupManager(
             localModelPolicy: .fullOnly,
@@ -174,8 +177,59 @@ final class TextCleanupManagerTests: XCTestCase {
         async let first = manager.clean(text: "first", prompt: "unused")
         async let second = manager.clean(text: "second", prompt: "unused")
 
-        let results = await [first, second]
+        let results = try await [first, second]
 
         XCTAssertEqual(results, ["first", "second"])
+    }
+
+    func testCleanupThrowsUnavailableWhenSelectedModelIsMissing() async {
+        let manager = TextCleanupManager(
+            localModelPolicy: .fastOnly,
+            fastModelAvailabilityOverride: false,
+            fullModelAvailabilityOverride: true
+        )
+
+        await XCTAssertThrowsErrorAsync(try await manager.clean(text: "hello", prompt: "unused")) { error in
+            XCTAssertEqual(error as? CleanupBackendError, .unavailable)
+        }
+    }
+
+    func testCleanupThrowsUnusableOutputWhenModelReturnsPlaceholder() async {
+        let manager = TextCleanupManager(
+            localModelPolicy: .fastOnly,
+            fastModelAvailabilityOverride: true,
+            fullModelAvailabilityOverride: true,
+            probeExecutionOverride: { _, _, _, _ in
+                CleanupModelProbeRawResult(
+                    modelKind: .fast,
+                    modelDisplayName: TextCleanupManager.fastModel.displayName,
+                    rawOutput: "...",
+                    elapsed: 0.01
+                )
+            }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await manager.clean(text: "hello", prompt: "unused")) { error in
+            XCTAssertEqual(
+                error as? CleanupBackendError,
+                .unusableOutput(rawOutput: "...")
+            )
+        }
+    }
+}
+
+@MainActor
+private func XCTAssertThrowsErrorAsync(
+    _ expression: @autoclosure () async throws -> some Any,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ errorHandler: (Error) -> Void = { _ in }
+) async {
+    do {
+        _ = try await expression()
+        XCTFail(message().isEmpty ? "Expected error to be thrown." : message(), file: file, line: line)
+    } catch {
+        errorHandler(error)
     }
 }

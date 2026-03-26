@@ -215,4 +215,19 @@ final class TextCleanerTests: XCTestCase {
 
         XCTAssertEqual(localBackend.cleanedInputs.map(\.modelKind), [.fast])
     }
+
+    func testCleanerMarksFallbackAndPreservesTranscriptForUnusableModelOutput() async {
+        let localBackend = SpyCleanupBackend(
+            nextResult: .failure(CleanupBackendError.unusableOutput(rawOutput: "..."))
+        )
+        let cleaner = TextCleaner(localBackend: localBackend)
+
+        let result = await cleaner.cleanWithPerformance(text: "raw text", prompt: "unused prompt")
+
+        XCTAssertEqual(result.text, "raw text")
+        XCTAssertTrue(result.usedFallback)
+        XCTAssertNotNil(result.performance.modelCallDuration)
+        XCTAssertEqual(result.transcript?.prompt, "unused prompt")
+        XCTAssertEqual(result.transcript?.rawOutput, "...")
+    }
 }

@@ -607,7 +607,7 @@ class AppState: ObservableObject {
             text: cleanedResult.text,
             prompt: activeCleanupPrompt,
             attemptedCleanup: canAttemptCleanup,
-            cleanupUsedFallback: cleanedResult.performance.modelCallDuration == nil
+            cleanupUsedFallback: cleanedResult.usedFallback
         )
     }
 

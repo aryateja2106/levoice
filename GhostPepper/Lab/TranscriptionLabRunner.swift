@@ -108,7 +108,7 @@ final class TranscriptionLabRunner {
         let cleanedResult = await clean(rawTranscription, activePrompt, cleanupModelKind)
         return TranscriptionLabCleanupResult(
             correctedTranscription: cleanedResult.text,
-            cleanupUsedFallback: cleanedResult.performance.modelCallDuration == nil,
+            cleanupUsedFallback: cleanedResult.usedFallback,
             transcript: TranscriptionLabCleanupTranscript(
                 prompt: activePrompt,
                 inputText: rawTranscription,

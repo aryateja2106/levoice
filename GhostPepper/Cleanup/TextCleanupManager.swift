@@ -24,7 +24,7 @@ enum CleanupModelState: Equatable {
 }
 
 protocol TextCleaningManaging: AnyObject {
-    func clean(text: String, prompt: String?, modelKind: LocalCleanupModelKind?) async -> String?
+    func clean(text: String, prompt: String?, modelKind: LocalCleanupModelKind?) async throws -> String
 }
 
 typealias CleanupModelProbeExecutionOverride = @MainActor (
@@ -187,7 +187,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         modelsDirectory.appendingPathComponent(fileName)
     }
 
-    func clean(text: String, prompt: String? = nil, modelKind: LocalCleanupModelKind? = nil) async -> String? {
+    func clean(text: String, prompt: String? = nil, modelKind: LocalCleanupModelKind? = nil) async throws -> String {
         let wordCount = text.split(separator: " ").count
         let isQuestion = text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
 
@@ -196,7 +196,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
                 .cleanup,
                 "Skipped local cleanup because no usable model was ready for policy \(localModelPolicy.rawValue)."
             )
-            return nil
+            throw CleanupBackendError.unavailable
         }
 
         let activePrompt = prompt ?? TextCleaner.defaultPrompt
@@ -209,11 +209,29 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
             )
             let cleaned = result.rawOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             if cleaned.isEmpty || cleaned == "..." {
-                return nil
+                debugLogger?(
+                    .cleanup,
+                    """
+                    Discarded local cleanup output from \(modelKind == .fast ? "fast" : "full") model because it was unusable:
+                    \(result.rawOutput)
+                    """
+                )
+                throw CleanupBackendError.unusableOutput(rawOutput: result.rawOutput)
             }
             return cleaned
+        } catch let error as CleanupBackendError {
+            throw error
+        } catch let error as CleanupModelProbeError {
+            switch error {
+            case .modelUnavailable:
+                throw CleanupBackendError.unavailable
+            }
         } catch {
-            return nil
+            debugLogger?(
+                .cleanup,
+                "Local cleanup probe failed before producing usable output: \(error.localizedDescription)"
+            )
+            throw CleanupBackendError.unavailable
         }
     }
 

@@ -6,4 +6,5 @@ protocol CleanupBackend: AnyObject {
 
 enum CleanupBackendError: Error, Equatable {
     case unavailable
+    case unusableOutput(rawOutput: String)
 }

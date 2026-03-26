@@ -125,7 +125,8 @@ final class TranscriptionLabRunnerTests: XCTestCase {
                     performance: TextCleanerPerformance(
                         modelCallDuration: nil,
                         postProcessDuration: 0.01
-                    )
+                    ),
+                    usedFallback: true
                 )
             },
             correctionStore: CorrectionStore(defaults: UserDefaults(suiteName: #function)!)
@@ -146,6 +147,43 @@ final class TranscriptionLabRunnerTests: XCTestCase {
         XCTAssertEqual(result.transcript?.inputText, "raw text")
         XCTAssertTrue(result.transcript?.prompt.contains("window text") == false)
         XCTAssertNil(result.transcript?.rawModelOutput)
+    }
+
+    func testRunnerReportsCleanupFallbackWhenModelReturnedUnusableOutput() async throws {
+        let runner = TranscriptionLabRunner(
+            loadAudioBuffer: { _ in [0.1] },
+            loadSpeechModel: { _ in },
+            transcribe: { _ in "raw text" },
+            clean: { _, prompt, _ in
+                TextCleanerResult(
+                    text: "raw text",
+                    performance: TextCleanerPerformance(
+                        modelCallDuration: 0.02,
+                        postProcessDuration: 0.01
+                    ),
+                    transcript: TextCleanerTranscript(
+                        prompt: prompt,
+                        rawOutput: "..."
+                    ),
+                    usedFallback: true
+                )
+            },
+            correctionStore: CorrectionStore(defaults: UserDefaults(suiteName: #function)!)
+        )
+
+        let result = try await runner.rerunCleanup(
+            entry: makeEntry(),
+            rawTranscription: "raw text",
+            cleanupModelKind: .fast,
+            prompt: TextCleaner.defaultPrompt,
+            includeWindowContext: false,
+            acquirePipeline: { true },
+            releasePipeline: {}
+        )
+
+        XCTAssertTrue(result.cleanupUsedFallback)
+        XCTAssertEqual(result.correctedTranscription, "raw text")
+        XCTAssertEqual(result.transcript?.rawModelOutput, "...")
     }
 
     private func makeEntry() -> TranscriptionLabEntry {

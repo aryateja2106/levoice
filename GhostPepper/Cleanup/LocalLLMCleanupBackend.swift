@@ -8,10 +8,6 @@ final class LocalLLMCleanupBackend: CleanupBackend {
     }
 
     func clean(text: String, prompt: String, modelKind: LocalCleanupModelKind?) async throws -> String {
-        guard let cleaned = await cleanupManager.clean(text: text, prompt: prompt, modelKind: modelKind) else {
-            throw CleanupBackendError.unavailable
-        }
-
-        return cleaned
+        try await cleanupManager.clean(text: text, prompt: prompt, modelKind: modelKind)
     }
 }
