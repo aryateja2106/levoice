@@ -316,6 +316,20 @@ class AppState: ObservableObject {
     func startHotkeyMonitor() async {
         hotkeyMonitor.onRecordingStart = nil
         hotkeyMonitor.onRecordingStop = nil
+        hotkeyMonitor.onRecordingRestart = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                // Push-to-talk upgraded to toggle — reset buffer only if recording just started
+                // (less than 1 second of audio at 16kHz). If they've been talking longer, keep it.
+                let sampleCount = self.audioRecorder.audioBuffer.count
+                if sampleCount < 16000 {
+                    self.audioRecorder.resetBuffer()
+                    self.debugLogStore.record(category: .hotkey, message: "Recording restarted (push-to-talk upgraded to toggle, \(sampleCount) samples discarded).")
+                } else {
+                    self.debugLogStore.record(category: .hotkey, message: "Push-to-talk upgraded to toggle, keeping \(sampleCount) samples of existing audio.")
+                }
+            }
+        }
 
         hotkeyMonitor.onPushToTalkStart = { [weak self] in
             Task { @MainActor in

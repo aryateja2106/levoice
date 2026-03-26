@@ -8,6 +8,7 @@ struct ChordEngine {
     enum Effect: Equatable {
         case startRecording
         case stopRecording
+        case restartRecording
     }
 
     private let bindings: [ChordAction: KeyChord]
@@ -35,7 +36,7 @@ struct ChordEngine {
         case .pushToTalk:
             if matchResult() == .exact(.toggleToTalk) {
                 activeRecordingAction = .toggleToTalk
-                return []
+                return [.restartRecording]
             }
 
             guard let pushChord = bindings[.pushToTalk] else {
@@ -77,6 +78,7 @@ struct ChordEngine {
     func matchResult() -> ChordMatchResult {
         guard !pressedKeys.isEmpty else { return .none }
 
+        // Exact match always wins — even if pressed keys are also a prefix of a longer chord
         for (action, chord) in bindings where chord.keys == pressedKeys {
             return .exact(action)
         }

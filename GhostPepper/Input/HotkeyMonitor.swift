@@ -5,6 +5,7 @@ import IOKit.hidsystem
 protocol HotkeyMonitoring: AnyObject {
     var onRecordingStart: (() -> Void)? { get set }
     var onRecordingStop: (() -> Void)? { get set }
+    var onRecordingRestart: (() -> Void)? { get set }
     var onPushToTalkStart: (() -> Void)? { get set }
     var onPushToTalkStop: (() -> Void)? { get set }
     var onToggleToTalkStart: (() -> Void)? { get set }
@@ -25,6 +26,14 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
         let logMessage: String?
         let startAction: ChordAction?
         let stopAction: ChordAction?
+        let restartAction: ChordAction?
+
+        init(logMessage: String?, startAction: ChordAction? = nil, stopAction: ChordAction? = nil, restartAction: ChordAction? = nil) {
+            self.logMessage = logMessage
+            self.startAction = startAction
+            self.stopAction = stopAction
+            self.restartAction = restartAction
+        }
     }
 
     fileprivate struct EventSnapshot {
@@ -37,6 +46,7 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
 
     var onRecordingStart: (() -> Void)?
     var onRecordingStop: (() -> Void)?
+    var onRecordingRestart: (() -> Void)?
     var onPushToTalkStart: (() -> Void)?
     var onPushToTalkStop: (() -> Void)?
     var onToggleToTalkStart: (() -> Void)?
@@ -294,6 +304,8 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
                 "start"
             case .stopRecording:
                 "stop"
+            case .restartRecording:
+                "restart"
             }
         }.joined(separator: ", ")
         let actionDescription = currentAction?.rawValue ?? "none"
@@ -302,7 +314,8 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
 
         let startAction = effects.contains(.startRecording) ? currentAction : nil
         let stopAction = effects.contains(.stopRecording) ? previousAction : nil
-        return HandlingResult(logMessage: logMessage, startAction: startAction, stopAction: stopAction)
+        let restartAction = effects.contains(.restartRecording) ? currentAction : nil
+        return HandlingResult(logMessage: logMessage, startAction: startAction, stopAction: stopAction, restartAction: restartAction)
     }
 
     private func currentPressedKeys() -> Set<PhysicalKey> {
@@ -382,6 +395,14 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
                 } else {
                     onRecordingStart?()
                 }
+            }
+        }
+
+        if let restartAction = result.restartAction {
+            // Push-to-talk upgraded to toggle — reset audio buffer to discard overlap
+            switch restartAction {
+            case .pushToTalk, .toggleToTalk:
+                onRecordingRestart?()
             }
         }
 
