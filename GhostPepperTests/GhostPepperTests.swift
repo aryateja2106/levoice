@@ -311,6 +311,41 @@ final class GhostPepperTests: XCTestCase {
         XCTAssertFalse(reloadedAppState.playSounds)
     }
 
+    func testAppStatePipelineOwnershipAllowsSingleOwnerAtATime() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults
+        )
+
+        XCTAssertTrue(appState.acquirePipeline(for: .transcriptionLab))
+        XCTAssertFalse(appState.acquirePipeline(for: .liveRecording))
+
+        appState.releasePipeline(owner: .transcriptionLab)
+
+        XCTAssertTrue(appState.acquirePipeline(for: .liveRecording))
+    }
+
+    func testAppStatePipelineReleaseIgnoresWrongOwner() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults
+        )
+
+        XCTAssertTrue(appState.acquirePipeline(for: .transcriptionLab))
+
+        appState.releasePipeline(owner: .liveRecording)
+
+        XCTAssertFalse(appState.acquirePipeline(for: .liveRecording))
+        appState.releasePipeline(owner: .transcriptionLab)
+        XCTAssertTrue(appState.acquirePipeline(for: .liveRecording))
+    }
+
     func testSoundEffectsSkipPlaybackWhenDisabled() {
         var startPlayCount = 0
         var stopPlayCount = 0

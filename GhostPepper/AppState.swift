@@ -18,6 +18,11 @@ enum EmptyTranscriptionDisposition: Equatable {
 
 @MainActor
 class AppState: ObservableObject {
+    enum PipelineOwner {
+        case liveRecording
+        case transcriptionLab
+    }
+
     @Published var status: AppStatus = .loading
     @Published var isRecording: Bool = false
     @Published var errorMessage: String?
@@ -94,6 +99,7 @@ class AppState: ObservableObject {
     private let recordingOCRPrefetch: RecordingOCRPrefetch
     private var activePerformanceTrace: PerformanceTrace?
     private var activeCleanupAttempted = false
+    private var pipelineOwner: PipelineOwner?
     private let cleanupSettingsDefaults: UserDefaults
     private let inputMonitoringChecker: () -> Bool
     private let inputMonitoringPrompter: () -> Void
@@ -405,6 +411,13 @@ class AppState: ObservableObject {
             beginPerformanceTrace()
         }
 
+        guard acquirePipeline(for: .liveRecording) else {
+            debugLogStore.record(category: .hotkey, message: "Recording start skipped because the transcription pipeline is busy.")
+            activePerformanceTrace = nil
+            activeCleanupAttempted = false
+            return
+        }
+
         do {
             if cleanupEnabled && canAttemptCleanup && frontmostWindowContextEnabled {
                 recordingOCRPrefetch.start(customWords: ocrCustomWords)
@@ -419,6 +432,7 @@ class AppState: ObservableObject {
             status = .recording
         } catch {
             recordingOCRPrefetch.cancel()
+            releasePipeline(owner: .liveRecording)
             activePerformanceTrace = nil
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             status = .error
@@ -508,11 +522,13 @@ class AppState: ObservableObject {
                 debugLogStore.record(category: .model, message: "No sound detected for a long recording.")
             }
             status = .ready
+            releasePipeline(owner: .liveRecording)
             completeActivePerformanceTraceIfNeeded()
             return
         }
 
         status = .ready
+        releasePipeline(owner: .liveRecording)
     }
 
     func cleanedTranscription(_ text: String) async -> String {
@@ -729,6 +745,23 @@ class AppState: ObservableObject {
     func prepareForTermination() {
         recordingOCRPrefetch.cancel()
         textCleanupManager.shutdownBackend()
+    }
+
+    func acquirePipeline(for owner: PipelineOwner) -> Bool {
+        guard pipelineOwner == nil else {
+            return false
+        }
+
+        pipelineOwner = owner
+        return true
+    }
+
+    func releasePipeline(owner: PipelineOwner) {
+        guard pipelineOwner == owner else {
+            return
+        }
+
+        pipelineOwner = nil
     }
 
     private func refreshCleanupModelState() async {
