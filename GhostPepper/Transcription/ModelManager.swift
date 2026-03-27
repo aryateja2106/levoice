@@ -7,6 +7,7 @@ import WhisperKit
 final class ModelManager: ObservableObject {
     private(set) var whisperKit: WhisperKit?
     private var fluidAudioManager: AsrManager?
+    private var sortformerModels: SortformerModels?
 
     @Published private(set) var state: ModelManagerState = .idle
     private(set) var modelName: String
@@ -101,6 +102,46 @@ final class ModelManager: ObservableObject {
         }
     }
 
+    func makeRecordingSessionCoordinator() async -> RecordingSessionCoordinator? {
+        guard let model = SpeechModelCatalog.model(named: modelName),
+              model.supportsSpeakerFiltering,
+              fluidAudioManager != nil else {
+            return nil
+        }
+
+        do {
+            let diarizerModels = try await loadSortformerModels()
+            let diarizer = SortformerDiarizer()
+            diarizer.initialize(models: diarizerModels)
+            let session = FluidAudioSpeechSession { [weak self] audioBuffer in
+                await self?.transcribe(audioBuffer: audioBuffer)
+            }
+
+            return RecordingSessionCoordinator(
+                appendAudioChunk: { samples in
+                    do {
+                        _ = try diarizer.processSamples(samples)
+                    } catch {
+                        self.debugLogger?(
+                            .model,
+                            "Speaker filtering diarization chunk failed: \(error.localizedDescription)"
+                        )
+                    }
+                },
+                finish: {
+                    diarizer.timeline.finalize()
+                    let spans = Self.diarizationSpans(from: diarizer.timeline.segments)
+                    let result = await session.finalize(spans: spans)
+                    diarizer.cleanup()
+                    return (filteredTranscript: result.filteredTranscript, summary: result.summary)
+                }
+            )
+        } catch {
+            debugLogger?(.model, "Speaker filtering diarizer failed to load: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func loadWhisperModel(named modelName: String) async throws {
         let modelsDir = Self.whisperModelsDirectory
         try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
@@ -141,7 +182,38 @@ final class ModelManager: ObservableObject {
     private func resetLoadedModels() {
         whisperKit = nil
         fluidAudioManager = nil
+        sortformerModels = nil
         state = .idle
+    }
+
+    private func loadSortformerModels() async throws -> SortformerModels {
+        if let sortformerModels {
+            return sortformerModels
+        }
+
+        let models = try await SortformerModels.loadFromHuggingFace(config: .default)
+        sortformerModels = models
+        return models
+    }
+
+    private static func diarizationSpans(from segmentsBySpeaker: [[SortformerSegment]]) -> [DiarizationSummary.Span] {
+        segmentsBySpeaker
+            .enumerated()
+            .flatMap { speakerIndex, segments in
+                segments.map { segment in
+                    DiarizationSummary.Span(
+                        speakerID: "Speaker \(speakerIndex)",
+                        startTime: TimeInterval(segment.startTime),
+                        endTime: TimeInterval(segment.endTime)
+                    )
+                }
+            }
+            .sorted { lhs, rhs in
+                if lhs.startTime == rhs.startTime {
+                    return lhs.endTime < rhs.endTime
+                }
+                return lhs.startTime < rhs.startTime
+            }
     }
 
     private static func modelIsCached(_ model: SpeechModelDescriptor) -> Bool {

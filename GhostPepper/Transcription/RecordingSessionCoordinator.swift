@@ -1,20 +1,60 @@
 import Foundation
 
 final class RecordingSessionCoordinator {
-    private let session: FluidAudioSpeechSession
+    typealias FinalizationResult = (filteredTranscript: String?, summary: DiarizationSummary)
+
+    private let appendAudioChunkHandler: ([Float]) -> Void
+    private let finishHandler: (() async -> FinalizationResult)?
+    private let finishWithSpansHandler: (([DiarizationSummary.Span]) async -> FinalizationResult)?
 
     private(set) var filteredTranscript: String?
 
     init(session: FluidAudioSpeechSession) {
-        self.session = session
+        appendAudioChunkHandler = session.appendAudioChunk
+        finishHandler = nil
+        finishWithSpansHandler = { spans in
+            let result = await session.finalize(spans: spans)
+            return (filteredTranscript: result.filteredTranscript, summary: result.summary)
+        }
+    }
+
+    init(
+        appendAudioChunk: @escaping ([Float]) -> Void,
+        finish: @escaping () async -> FinalizationResult
+    ) {
+        appendAudioChunkHandler = appendAudioChunk
+        finishHandler = finish
+        finishWithSpansHandler = nil
     }
 
     func appendAudioChunk(_ samples: [Float]) {
-        session.appendAudioChunk(samples)
+        appendAudioChunkHandler(samples)
+    }
+
+    func finish() async -> DiarizationSummary {
+        guard let finishHandler else {
+            return DiarizationSummary(
+                spans: [],
+                mergedKeptSpans: [],
+                targetSpeakerID: nil,
+                targetSpeakerDuration: 0,
+                keptAudioDuration: 0,
+                usedFallback: true,
+                fallbackReason: .noUsableSpeakerSpans
+            )
+        }
+
+        let result = await finishHandler()
+        filteredTranscript = result.filteredTranscript
+        return result.summary
     }
 
     func finish(spans: [DiarizationSummary.Span]) async -> DiarizationSummary {
-        let result = await session.finalize(spans: spans)
+        guard let finishWithSpansHandler else {
+            return await finish()
+        }
+
+        let result = await finishWithSpansHandler(spans)
         filteredTranscript = result.filteredTranscript
         return result.summary
     }
