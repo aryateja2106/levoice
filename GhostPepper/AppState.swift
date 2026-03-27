@@ -23,6 +23,19 @@ class AppState: ObservableObject {
         case transcriptionLab
     }
 
+    typealias CleanupResult = (
+        text: String,
+        prompt: String,
+        attemptedCleanup: Bool,
+        cleanupUsedFallback: Bool
+    )
+
+    private struct RecordingTranscriptionResult {
+        let rawTranscription: String?
+        let speakerFilteringRan: Bool
+        let diarizationSummary: DiarizationSummary?
+    }
+
     @Published var status: AppStatus = .loading
     @Published var isRecording: Bool = false
     @Published var errorMessage: String?
@@ -62,6 +75,14 @@ class AppState: ObservableObject {
             postPasteLearningCoordinator.learningEnabled = postPasteLearningEnabled
         }
     }
+    @Published var ignoreOtherSpeakers: Bool {
+        didSet {
+            cleanupSettingsDefaults.set(
+                ignoreOtherSpeakers,
+                forKey: Self.ignoreOtherSpeakersDefaultsKey
+            )
+        }
+    }
 
     let modelManager = ModelManager()
     let audioRecorder: AudioRecorder
@@ -82,6 +103,10 @@ class AppState: ObservableObject {
     let debugLogStore: DebugLogStore
     let transcriptionLabStore: TranscriptionLabStore
     let appRelauncher: AppRelaunching
+    var recordingSessionCoordinatorFactory: (() -> RecordingSessionCoordinator?)?
+    var transcribeAudioBufferOverride: (([Float]) -> String?)?
+    var cleanedTranscriptionResultOverride: ((String, OCRContext?) async -> CleanupResult)?
+    private(set) var activeRecordingSessionCoordinator: RecordingSessionCoordinator?
 
     var isReady: Bool {
         status == .ready
@@ -108,6 +133,7 @@ class AppState: ObservableObject {
     private static let cleanupBackendDefaultsKey = "cleanupBackend"
     private static let frontmostWindowContextEnabledDefaultsKey = "frontmostWindowContextEnabled"
     private static let postPasteLearningEnabledDefaultsKey = "postPasteLearningEnabled"
+    private static let ignoreOtherSpeakersDefaultsKey = "ignoreOtherSpeakers"
     private static let playSoundsDefaultsKey = "playSounds"
     private static let emptyTranscriptionCancelThresholdSampleCount = 80_000
 
@@ -176,9 +202,18 @@ class AppState: ObservableObject {
                 forKey: Self.postPasteLearningEnabledDefaultsKey
             )
         }
+        let storedIgnoreOtherSpeakers: Bool
+        if cleanupSettingsDefaults.object(forKey: Self.ignoreOtherSpeakersDefaultsKey) == nil {
+            storedIgnoreOtherSpeakers = false
+        } else {
+            storedIgnoreOtherSpeakers = cleanupSettingsDefaults.bool(
+                forKey: Self.ignoreOtherSpeakersDefaultsKey
+            )
+        }
         self.cleanupBackend = storedCleanupBackend
         self.frontmostWindowContextEnabled = storedFrontmostWindowContextEnabled
         self.postPasteLearningEnabled = storedPostPasteLearningEnabled
+        self.ignoreOtherSpeakers = storedIgnoreOtherSpeakers
         if cleanupSettingsDefaults.object(forKey: Self.playSoundsDefaultsKey) == nil {
             self.playSounds = true
         } else {
@@ -214,6 +249,10 @@ class AppState: ObservableObject {
         cleanupSettingsDefaults.set(
             storedPostPasteLearningEnabled,
             forKey: Self.postPasteLearningEnabledDefaultsKey
+        )
+        cleanupSettingsDefaults.set(
+            storedIgnoreOtherSpeakers,
+            forKey: Self.ignoreOtherSpeakersDefaultsKey
         )
         cleanupSettingsDefaults.set(
             playSounds,
@@ -343,7 +382,7 @@ class AppState: ObservableObject {
         hotkeyMonitor.onPushToTalkStart = { [weak self] in
             Task { @MainActor in
                 self?.beginPerformanceTrace()
-                self?.startRecording()
+                await self?.startRecording()
             }
         }
         hotkeyMonitor.onPushToTalkStop = { [weak self] in
@@ -355,7 +394,7 @@ class AppState: ObservableObject {
         hotkeyMonitor.onToggleToTalkStart = { [weak self] in
             Task { @MainActor in
                 self?.beginPerformanceTrace()
-                self?.startRecording()
+                await self?.startRecording()
             }
         }
         hotkeyMonitor.onToggleToTalkStop = { [weak self] in
@@ -395,7 +434,41 @@ class AppState: ObservableObject {
         }
     }
 
-    private func startRecording() {
+    func prepareRecordingSessionIfNeeded() async {
+        audioRecorder.onConvertedAudioChunk = nil
+        activeRecordingSessionCoordinator = nil
+
+        guard ignoreOtherSpeakers, selectedSpeechModelSupportsSpeakerFiltering else {
+            return
+        }
+
+        let coordinator: RecordingSessionCoordinator?
+        if let recordingSessionCoordinatorFactory {
+            coordinator = recordingSessionCoordinatorFactory()
+        } else {
+            coordinator = await modelManager.makeRecordingSessionCoordinator()
+        }
+
+        guard let coordinator else {
+            return
+        }
+
+        activeRecordingSessionCoordinator = coordinator
+        audioRecorder.onConvertedAudioChunk = { [weak coordinator] samples in
+            coordinator?.appendAudioChunk(samples)
+        }
+    }
+
+    private func clearRecordingSessionCoordinator() {
+        audioRecorder.onConvertedAudioChunk = nil
+        activeRecordingSessionCoordinator = nil
+    }
+
+    private var selectedSpeechModelSupportsSpeakerFiltering: Bool {
+        SpeechModelCatalog.model(named: speechModel)?.supportsSpeakerFiltering == true
+    }
+
+    private func startRecording() async {
         // If the selected speech model isn't ready, show loading message
         guard status == .ready else {
             if status == .loading {
@@ -419,6 +492,7 @@ class AppState: ObservableObject {
         }
 
         do {
+            await prepareRecordingSessionIfNeeded()
             if cleanupEnabled && canAttemptCleanup && frontmostWindowContextEnabled {
                 recordingOCRPrefetch.start(customWords: ocrCustomWords)
             } else {
@@ -448,71 +522,36 @@ class AppState: ObservableObject {
 
         debugLogStore.record(category: .hotkey, message: "Recording stopped. Starting transcription.")
         let buffer = await audioRecorder.stopRecording()
+        let recordingSessionCoordinator = activeRecordingSessionCoordinator
+        clearRecordingSessionCoordinator()
         soundEffects.playStop()
         isRecording = false
         status = .transcribing
         overlay.show(message: .transcribing)
         activePerformanceTrace?.transcriptionStartAt = Date()
 
-        if let text = await transcriber.transcribe(audioBuffer: buffer) {
-            activePerformanceTrace?.transcriptionEndAt = Date()
-            var windowContext: OCRContext?
-            if cleanupEnabled && canAttemptCleanup {
-                activeCleanupAttempted = true
-                activePerformanceTrace?.cleanupStartAt = Date()
-                status = .cleaningUp
-                overlay.show(message: .cleaningUp)
-
-                if frontmostWindowContextEnabled {
-                    let prefetchedContext = await recordingOCRPrefetch.resolve()
-                    windowContext = prefetchedContext?.context
-                    activePerformanceTrace?.ocrCaptureDuration = prefetchedContext?.elapsed
-                    if windowContext == nil {
-                        debugLogStore.record(category: .ocr, message: "No frontmost-window OCR context was captured.")
-                    }
-                }
+        let archivedWindowContext: OCRContext?
+        if frontmostWindowContextEnabled {
+            let prefetchedContext = await recordingOCRPrefetch.resolve()
+            archivedWindowContext = prefetchedContext?.context
+            if activeCleanupAttempted == false {
+                activePerformanceTrace?.ocrCaptureDuration = prefetchedContext?.elapsed
             }
-            let cleanupResult = await cleanedTranscriptionResult(text, windowContext: windowContext)
-            let finalText = cleanupResult.text
-            activeCleanupAttempted = cleanupResult.attemptedCleanup
-            if cleanupResult.attemptedCleanup {
-                activePerformanceTrace?.cleanupEndAt = Date()
-            }
-
-            await archiveRecordingForLab(
-                audioBuffer: buffer,
-                windowContext: windowContext,
-                rawTranscription: text,
-                correctedTranscription: finalText,
-                cleanupUsedFallback: cleanupResult.cleanupUsedFallback
-            )
-
-            recordCleanupDebugSnapshot(
-                rawTranscription: text,
-                windowContext: windowContext,
-                cleanedOutput: finalText,
-                attemptedCleanup: cleanupResult.attemptedCleanup
-            )
-
-            overlay.dismiss()
-            textPaster.paste(text: finalText)
         } else {
-            recordingOCRPrefetch.cancel()
-            let archivedWindowContext: OCRContext?
-            if frontmostWindowContextEnabled {
-                let prefetchedContext = await recordingOCRPrefetch.resolve()
-                archivedWindowContext = prefetchedContext?.context
-            } else {
-                archivedWindowContext = nil
-            }
-            await archiveRecordingForLab(
-                audioBuffer: buffer,
-                windowContext: archivedWindowContext,
-                rawTranscription: nil,
-                correctedTranscription: nil,
-                cleanupUsedFallback: false
-            )
-            activePerformanceTrace?.transcriptionEndAt = Date()
+            archivedWindowContext = nil
+        }
+
+        let didProduceTranscript = await processRecordingResult(
+            audioBuffer: buffer,
+            recordingSessionCoordinator: recordingSessionCoordinator,
+            archivedWindowContext: archivedWindowContext,
+            shouldPaste: true,
+            shouldRecordDebugSnapshot: true
+        )
+
+        if didProduceTranscript {
+            overlay.dismiss()
+        } else {
             switch Self.emptyTranscriptionDisposition(forAudioSampleCount: buffer.count) {
             case .cancel:
                 overlay.dismiss()
@@ -521,14 +560,136 @@ class AppState: ObservableObject {
                 overlay.show(message: .noSoundDetected)
                 debugLogStore.record(category: .model, message: "No sound detected for a long recording.")
             }
-            status = .ready
-            releasePipeline(owner: .liveRecording)
             completeActivePerformanceTraceIfNeeded()
-            return
         }
 
         status = .ready
         releasePipeline(owner: .liveRecording)
+    }
+
+    func finishRecordingForTesting(
+        audioBuffer: [Float],
+        recordingSessionCoordinator: RecordingSessionCoordinator?,
+        archivedWindowContext: OCRContext?
+    ) async {
+        _ = await processRecordingResult(
+            audioBuffer: audioBuffer,
+            recordingSessionCoordinator: recordingSessionCoordinator,
+            archivedWindowContext: archivedWindowContext,
+            shouldPaste: false,
+            shouldRecordDebugSnapshot: false
+        )
+    }
+
+    private func processRecordingResult(
+        audioBuffer: [Float],
+        recordingSessionCoordinator: RecordingSessionCoordinator?,
+        archivedWindowContext: OCRContext?,
+        shouldPaste: Bool,
+        shouldRecordDebugSnapshot: Bool
+    ) async -> Bool {
+        let transcriptionResult = await transcribedTextForRecording(
+            audioBuffer,
+            recordingSessionCoordinator: recordingSessionCoordinator
+        )
+
+        guard let text = transcriptionResult.rawTranscription else {
+            await archiveRecordingForLab(
+                audioBuffer: audioBuffer,
+                windowContext: archivedWindowContext,
+                rawTranscription: nil,
+                correctedTranscription: nil,
+                cleanupUsedFallback: false,
+                speakerFilteringEnabled: ignoreOtherSpeakers && selectedSpeechModelSupportsSpeakerFiltering,
+                speakerFilteringRan: transcriptionResult.speakerFilteringRan,
+                diarizationSummary: transcriptionResult.diarizationSummary
+            )
+            activePerformanceTrace?.transcriptionEndAt = Date()
+            return false
+        }
+
+        activePerformanceTrace?.transcriptionEndAt = Date()
+        var windowContext = archivedWindowContext
+        if cleanupEnabled && canAttemptCleanup {
+            activeCleanupAttempted = true
+            activePerformanceTrace?.cleanupStartAt = Date()
+            status = .cleaningUp
+            if shouldPaste {
+                overlay.show(message: .cleaningUp)
+            }
+            if frontmostWindowContextEnabled, windowContext == nil {
+                debugLogStore.record(category: .ocr, message: "No frontmost-window OCR context was captured.")
+            }
+        }
+
+        let cleanupResult = await cleanedTranscriptionResult(text, windowContext: windowContext)
+        let finalText = cleanupResult.text
+        activeCleanupAttempted = cleanupResult.attemptedCleanup
+        if cleanupResult.attemptedCleanup {
+            activePerformanceTrace?.cleanupEndAt = Date()
+        }
+
+        await archiveRecordingForLab(
+            audioBuffer: audioBuffer,
+            windowContext: windowContext,
+            rawTranscription: text,
+            correctedTranscription: finalText,
+            cleanupUsedFallback: cleanupResult.cleanupUsedFallback,
+            speakerFilteringEnabled: ignoreOtherSpeakers && selectedSpeechModelSupportsSpeakerFiltering,
+            speakerFilteringRan: transcriptionResult.speakerFilteringRan,
+            diarizationSummary: transcriptionResult.diarizationSummary
+        )
+
+        if shouldRecordDebugSnapshot {
+            recordCleanupDebugSnapshot(
+                rawTranscription: text,
+                windowContext: windowContext,
+                cleanedOutput: finalText,
+                attemptedCleanup: cleanupResult.attemptedCleanup
+            )
+        }
+
+        if shouldPaste {
+            textPaster.paste(text: finalText)
+        }
+
+        return true
+    }
+
+    private func transcribedTextForRecording(
+        _ audioBuffer: [Float],
+        recordingSessionCoordinator: RecordingSessionCoordinator?
+    ) async -> RecordingTranscriptionResult {
+        var diarizationSummary: DiarizationSummary?
+
+        if let recordingSessionCoordinator {
+            let summary = await recordingSessionCoordinator.finish()
+            diarizationSummary = summary
+
+            if summary.usedFallback == false,
+               let filteredTranscript = recordingSessionCoordinator.filteredTranscript,
+               filteredTranscript.isEmpty == false {
+                return RecordingTranscriptionResult(
+                    rawTranscription: filteredTranscript,
+                    speakerFilteringRan: true,
+                    diarizationSummary: summary
+                )
+            }
+        }
+
+        return RecordingTranscriptionResult(
+            rawTranscription: await transcribeAudioBuffer(audioBuffer),
+            speakerFilteringRan: recordingSessionCoordinator != nil,
+            diarizationSummary: diarizationSummary
+        )
+    }
+
+    private func transcribeAudioBuffer(_ audioBuffer: [Float]) async -> String? {
+        if let transcribeAudioBufferOverride {
+            return transcribeAudioBufferOverride(audioBuffer)
+        }
+
+        return await transcriber.transcribe(audioBuffer: audioBuffer)
     }
 
     func cleanedTranscription(_ text: String) async -> String {
@@ -580,7 +741,11 @@ class AppState: ObservableObject {
     private func cleanedTranscriptionResult(
         _ text: String,
         windowContext: OCRContext?
-    ) async -> (text: String, prompt: String, attemptedCleanup: Bool, cleanupUsedFallback: Bool) {
+    ) async -> CleanupResult {
+        if let cleanedTranscriptionResultOverride {
+            return await cleanedTranscriptionResultOverride(text, windowContext)
+        }
+
         guard cleanupEnabled else {
             return (text: text, prompt: cleanupPrompt, attemptedCleanup: false, cleanupUsedFallback: false)
         }
@@ -678,7 +843,10 @@ class AppState: ObservableObject {
         windowContext: OCRContext?,
         rawTranscription: String?,
         correctedTranscription: String?,
-        cleanupUsedFallback: Bool
+        cleanupUsedFallback: Bool,
+        speakerFilteringEnabled: Bool = false,
+        speakerFilteringRan: Bool = false,
+        diarizationSummary: DiarizationSummary? = nil
     ) async {
         guard !audioBuffer.isEmpty else {
             return
@@ -712,7 +880,11 @@ class AppState: ObservableObject {
                 correctedTranscription: correctedTranscription,
                 speechModelID: speechModel,
                 cleanupModelName: cleanupEnabled ? textCleanupManager.localModelPolicy.title : "Cleanup disabled",
-                cleanupUsedFallback: cleanupUsedFallback
+                cleanupUsedFallback: cleanupUsedFallback,
+                speakerFilteringEnabled: speakerFilteringEnabled,
+                speakerFilteringRan: speakerFilteringRan,
+                speakerFilteringUsedFallback: diarizationSummary?.usedFallback ?? false,
+                diarizationSummary: diarizationSummary
             )
             let stageTimings = TranscriptionLabStageTimings(
                 transcriptionDuration: transcriptionDuration,

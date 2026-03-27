@@ -245,6 +245,24 @@ final class GhostPepperTests: XCTestCase {
         )
     }
 
+    func testAppStatePersistsIgnoreOtherSpeakersPreference() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        defaults.set(true, forKey: "ignoreOtherSpeakers")
+
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults
+        )
+
+        XCTAssertTrue(appState.ignoreOtherSpeakers)
+
+        appState.ignoreOtherSpeakers = false
+
+        XCTAssertEqual(defaults.object(forKey: "ignoreOtherSpeakers") as? Bool, false)
+    }
+
     func testAppStateDefaultsPostPasteLearningToEnabled() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
         defaults.removePersistentDomain(forName: #function)
@@ -257,6 +275,20 @@ final class GhostPepperTests: XCTestCase {
 
         XCTAssertTrue(appState.postPasteLearningEnabled)
         XCTAssertTrue(appState.postPasteLearningCoordinator.learningEnabled)
+    }
+
+    func testRecordingSettingsDisablesIgnoreOtherSpeakersForWhisperModels() {
+        let parakeetState = RecordingSpeakerFilteringToggleState(
+            speechModel: SpeechModelCatalog.parakeetV3
+        )
+        let whisperState = RecordingSpeakerFilteringToggleState(
+            speechModel: SpeechModelCatalog.whisperSmallEnglish
+        )
+
+        XCTAssertTrue(parakeetState.isVisible)
+        XCTAssertTrue(parakeetState.isEnabled)
+        XCTAssertTrue(whisperState.isVisible)
+        XCTAssertFalse(whisperState.isEnabled)
     }
 
     func testAppStateUpdatePostPasteLearningPersistsAndUpdatesCoordinator() throws {
@@ -938,6 +970,218 @@ final class GhostPepperTests: XCTestCase {
         XCTAssertNil(entries[0].correctedTranscription)
     }
 
+    func testAppStateArchivesRecordingWithDiarizationSummary() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let storeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let labStore = TranscriptionLabStore(directoryURL: storeDirectory, maxEntries: 50)
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults,
+            transcriptionLabStore: labStore
+        )
+        defer {
+            try? FileManager.default.removeItem(at: storeDirectory)
+        }
+
+        let diarizationSummary = DiarizationSummary(
+            spans: [
+                DiarizationSummary.Span(speakerID: "speaker-a", startTime: 0.0, endTime: 0.8, isKept: true),
+                DiarizationSummary.Span(speakerID: "speaker-b", startTime: 0.9, endTime: 1.2, isKept: false)
+            ],
+            mergedKeptSpans: [
+                DiarizationSummary.MergedSpan(startTime: 0.0, endTime: 0.8)
+            ],
+            targetSpeakerID: "speaker-a",
+            targetSpeakerDuration: 0.8,
+            keptAudioDuration: 0.8,
+            usedFallback: true,
+            fallbackReason: .emptyFilteredTranscription
+        )
+
+        await appState.archiveRecordingForLab(
+            audioBuffer: [0.1, 0.2, 0.3],
+            windowContext: OCRContext(windowContents: "Ghost Pepper"),
+            rawTranscription: "raw diarized transcription",
+            correctedTranscription: "clean diarized transcription",
+            cleanupUsedFallback: false,
+            speakerFilteringEnabled: true,
+            speakerFilteringRan: true,
+            diarizationSummary: diarizationSummary
+        )
+
+        let entries = try labStore.loadEntries()
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].diarizationSummary, diarizationSummary)
+        XCTAssertTrue(entries[0].speakerFilteringEnabled)
+        XCTAssertTrue(entries[0].speakerFilteringRan)
+        XCTAssertTrue(entries[0].speakerFilteringUsedFallback)
+    }
+
+    func testWhisperRecordingIgnoresSpeakerFilteringSetting() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults
+        )
+        appState.speechModel = SpeechModelCatalog.whisperSmallEnglish.id
+        appState.ignoreOtherSpeakers = true
+
+        var factoryCallCount = 0
+        appState.recordingSessionCoordinatorFactory = {
+            factoryCallCount += 1
+            return RecordingSessionCoordinator(
+                appendAudioChunk: { _ in },
+                finish: {
+                    (filteredTranscript: "unused", summary: Self.makeDiarizationSummary(usedFallback: false))
+                }
+            )
+        }
+
+        await appState.prepareRecordingSessionIfNeeded()
+
+        XCTAssertEqual(factoryCallCount, 0)
+        XCTAssertNil(appState.audioRecorder.onConvertedAudioChunk)
+    }
+
+    func testFluidAudioRecordingUsesSpeakerFilteringSession() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let storeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let labStore = TranscriptionLabStore(directoryURL: storeDirectory, maxEntries: 50)
+        defer {
+            try? FileManager.default.removeItem(at: storeDirectory)
+        }
+
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults,
+            transcriptionLabStore: labStore
+        )
+        appState.speechModel = SpeechModelCatalog.parakeetV3.id
+        appState.ignoreOtherSpeakers = true
+
+        let receivedChunks = LockedValue<[[Float]]>([])
+        let diarizationSummary = Self.makeDiarizationSummary(usedFallback: false)
+        appState.recordingSessionCoordinatorFactory = {
+            RecordingSessionCoordinator(
+                appendAudioChunk: { samples in
+                    Task {
+                        await receivedChunks.append(samples)
+                    }
+                },
+                finish: {
+                    (filteredTranscript: "filtered speaker transcript", summary: diarizationSummary)
+                }
+            )
+        }
+
+        var fullTranscriptionCalls = 0
+        appState.transcribeAudioBufferOverride = { _ in
+            fullTranscriptionCalls += 1
+            return "full transcript"
+        }
+
+        let cleanupInputs = LockedValue<[String]>([])
+        appState.cleanedTranscriptionResultOverride = { text, _ in
+            await cleanupInputs.append(text)
+            return (
+                text: "cleaned \(text)",
+                prompt: "prompt",
+                attemptedCleanup: true,
+                cleanupUsedFallback: false
+            )
+        }
+
+        await appState.prepareRecordingSessionIfNeeded()
+        appState.audioRecorder.onConvertedAudioChunk?([0.1, 0.2, 0.3])
+        await appState.finishRecordingForTesting(
+            audioBuffer: [0.1, 0.2, 0.3],
+            recordingSessionCoordinator: appState.activeRecordingSessionCoordinator,
+            archivedWindowContext: OCRContext(windowContents: "context")
+        )
+
+        let entries = try labStore.loadEntries()
+        let recordedChunks = await receivedChunks.get()
+        let cleanupTexts = await cleanupInputs.get()
+        XCTAssertEqual(recordedChunks, [[0.1, 0.2, 0.3]])
+        XCTAssertEqual(fullTranscriptionCalls, 0)
+        XCTAssertEqual(cleanupTexts, ["filtered speaker transcript"])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].diarizationSummary, diarizationSummary)
+        XCTAssertTrue(entries[0].speakerFilteringEnabled)
+        XCTAssertTrue(entries[0].speakerFilteringRan)
+        XCTAssertFalse(entries[0].speakerFilteringUsedFallback)
+    }
+
+    func testAppStateArchivesDiarizationFallbackState() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: #function))
+        defaults.removePersistentDomain(forName: #function)
+        let storeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let labStore = TranscriptionLabStore(directoryURL: storeDirectory, maxEntries: 50)
+        defer {
+            try? FileManager.default.removeItem(at: storeDirectory)
+        }
+
+        let appState = AppState(
+            hotkeyMonitor: FakeHotkeyMonitor(),
+            chordBindingStore: ChordBindingStore(defaults: defaults),
+            cleanupSettingsDefaults: defaults,
+            transcriptionLabStore: labStore
+        )
+        appState.speechModel = SpeechModelCatalog.parakeetV3.id
+        appState.ignoreOtherSpeakers = true
+
+        let diarizationSummary = Self.makeDiarizationSummary(usedFallback: true)
+        let coordinator = RecordingSessionCoordinator(
+            appendAudioChunk: { _ in },
+            finish: {
+                (filteredTranscript: nil, summary: diarizationSummary)
+            }
+        )
+
+        var fullTranscriptionCalls = 0
+        appState.transcribeAudioBufferOverride = { _ in
+            fullTranscriptionCalls += 1
+            return "fallback full transcript"
+        }
+
+        let cleanupInputs = LockedValue<[String]>([])
+        appState.cleanedTranscriptionResultOverride = { text, _ in
+            await cleanupInputs.append(text)
+            return (
+                text: "cleaned \(text)",
+                prompt: "prompt",
+                attemptedCleanup: true,
+                cleanupUsedFallback: false
+            )
+        }
+
+        await appState.finishRecordingForTesting(
+            audioBuffer: [0.1, 0.2, 0.3],
+            recordingSessionCoordinator: coordinator,
+            archivedWindowContext: OCRContext(windowContents: "context")
+        )
+
+        let entries = try labStore.loadEntries()
+        let cleanupTexts = await cleanupInputs.get()
+        XCTAssertEqual(fullTranscriptionCalls, 1)
+        XCTAssertEqual(cleanupTexts, ["fallback full transcript"])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].diarizationSummary, diarizationSummary)
+        XCTAssertTrue(entries[0].speakerFilteringEnabled)
+        XCTAssertTrue(entries[0].speakerFilteringRan)
+        XCTAssertTrue(entries[0].speakerFilteringUsedFallback)
+    }
+
     private func closeWindows(titled title: String) {
         NSApp.windows
             .filter { $0.title == title }
@@ -975,5 +1219,38 @@ final class GhostPepperTests: XCTestCase {
 
         XCTAssertFalse(granted)
         XCTAssertEqual(PermissionChecker.microphoneStatus(), .denied)
+    }
+
+    private static func makeDiarizationSummary(usedFallback: Bool) -> DiarizationSummary {
+        DiarizationSummary(
+            spans: [
+                DiarizationSummary.Span(speakerID: "speaker-a", startTime: 0.0, endTime: 0.8, isKept: true),
+                DiarizationSummary.Span(speakerID: "speaker-b", startTime: 0.9, endTime: 1.2, isKept: false)
+            ],
+            mergedKeptSpans: [
+                DiarizationSummary.MergedSpan(startTime: 0.0, endTime: 0.8)
+            ],
+            targetSpeakerID: "speaker-a",
+            targetSpeakerDuration: 0.8,
+            keptAudioDuration: 0.8,
+            usedFallback: usedFallback,
+            fallbackReason: usedFallback ? .emptyFilteredTranscription : nil
+        )
+    }
+}
+
+private actor LockedValue<Value> {
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func get() -> Value {
+        value
+    }
+
+    func append<Element>(_ newElement: Element) where Value == [Element] {
+        value.append(newElement)
     }
 }

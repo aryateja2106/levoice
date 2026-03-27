@@ -26,9 +26,14 @@ final class TranscriptionLabStore {
             return []
         }
 
-        let data = try Data(contentsOf: indexURL)
-        let entries = try decoder.decode([TranscriptionLabEntry].self, from: data)
-        return entries.sorted { $0.createdAt > $1.createdAt }
+        do {
+            let data = try Data(contentsOf: indexURL)
+            let entries = try decoder.decode([TranscriptionLabEntry].self, from: data)
+            return entries.sorted { $0.createdAt > $1.createdAt }
+        } catch {
+            resetStoredArchive()
+            return []
+        }
     }
 
     func loadStageTimings() throws -> [UUID: TranscriptionLabStageTimings] {
@@ -36,15 +41,20 @@ final class TranscriptionLabStore {
             return [:]
         }
 
-        let data = try Data(contentsOf: timingsURL)
-        let encodedTimings = try decoder.decode([String: TranscriptionLabStageTimings].self, from: data)
-        return Dictionary(uniqueKeysWithValues: encodedTimings.compactMap { key, value in
-            guard let entryID = UUID(uuidString: key) else {
-                return nil
-            }
+        do {
+            let data = try Data(contentsOf: timingsURL)
+            let encodedTimings = try decoder.decode([String: TranscriptionLabStageTimings].self, from: data)
+            return Dictionary(uniqueKeysWithValues: encodedTimings.compactMap { key, value in
+                guard let entryID = UUID(uuidString: key) else {
+                    return nil
+                }
 
-            return (entryID, value)
-        })
+                return (entryID, value)
+            })
+        } catch {
+            resetStoredArchive()
+            return [:]
+        }
     }
 
     func insert(
@@ -97,6 +107,12 @@ final class TranscriptionLabStore {
 
     private var timingsURL: URL {
         directoryURL.appendingPathComponent("transcription-lab-timings.json")
+    }
+
+    private func resetStoredArchive() {
+        try? FileManager.default.removeItem(at: indexURL)
+        try? FileManager.default.removeItem(at: timingsURL)
+        try? FileManager.default.removeItem(at: audioDirectoryURL)
     }
 
     private static var defaultDirectoryURL: URL {

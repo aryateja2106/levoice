@@ -32,6 +32,10 @@ struct SpeechModelDescriptor: Identifiable, Equatable {
             "\(pickerTitle) (\(variantName.lowercased()))"
         }
     }
+
+    var supportsSpeakerFiltering: Bool {
+        backend == .fluidAudio
+    }
 }
 
 enum SpeechModelCatalog {

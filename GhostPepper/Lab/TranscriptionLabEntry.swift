@@ -11,6 +11,10 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
     let speechModelID: String
     let cleanupModelName: String
     let cleanupUsedFallback: Bool
+    let speakerFilteringEnabled: Bool
+    let speakerFilteringRan: Bool
+    let speakerFilteringUsedFallback: Bool
+    let diarizationSummary: DiarizationSummary?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -23,6 +27,10 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
         case speechModelID
         case cleanupModelName
         case cleanupUsedFallback
+        case speakerFilteringEnabled
+        case speakerFilteringRan
+        case speakerFilteringUsedFallback
+        case diarizationSummary
     }
 
     init(
@@ -35,7 +43,11 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
         correctedTranscription: String?,
         speechModelID: String,
         cleanupModelName: String,
-        cleanupUsedFallback: Bool
+        cleanupUsedFallback: Bool,
+        speakerFilteringEnabled: Bool = false,
+        speakerFilteringRan: Bool = false,
+        speakerFilteringUsedFallback: Bool = false,
+        diarizationSummary: DiarizationSummary? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -47,6 +59,10 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
         self.speechModelID = speechModelID
         self.cleanupModelName = cleanupModelName
         self.cleanupUsedFallback = cleanupUsedFallback
+        self.speakerFilteringEnabled = speakerFilteringEnabled
+        self.speakerFilteringRan = speakerFilteringRan
+        self.speakerFilteringUsedFallback = speakerFilteringUsedFallback
+        self.diarizationSummary = diarizationSummary
     }
 
     init(from decoder: Decoder) throws {
@@ -65,6 +81,10 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
         speechModelID = try container.decode(String.self, forKey: .speechModelID)
         cleanupModelName = try container.decode(String.self, forKey: .cleanupModelName)
         cleanupUsedFallback = try container.decode(Bool.self, forKey: .cleanupUsedFallback)
+        speakerFilteringEnabled = try container.decode(Bool.self, forKey: .speakerFilteringEnabled)
+        speakerFilteringRan = try container.decode(Bool.self, forKey: .speakerFilteringRan)
+        speakerFilteringUsedFallback = try container.decode(Bool.self, forKey: .speakerFilteringUsedFallback)
+        diarizationSummary = try container.decodeIfPresent(DiarizationSummary.self, forKey: .diarizationSummary)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -79,5 +99,9 @@ struct TranscriptionLabEntry: Identifiable, Equatable, Codable {
         try container.encode(speechModelID, forKey: .speechModelID)
         try container.encode(cleanupModelName, forKey: .cleanupModelName)
         try container.encode(cleanupUsedFallback, forKey: .cleanupUsedFallback)
+        try container.encode(speakerFilteringEnabled, forKey: .speakerFilteringEnabled)
+        try container.encode(speakerFilteringRan, forKey: .speakerFilteringRan)
+        try container.encode(speakerFilteringUsedFallback, forKey: .speakerFilteringUsedFallback)
+        try container.encodeIfPresent(diarizationSummary, forKey: .diarizationSummary)
     }
 }

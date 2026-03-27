@@ -38,4 +38,31 @@ final class AudioRecorderTests: XCTestCase {
             XCTAssertEqual(decodedSample, expectedSample, accuracy: 0.0001)
         }
     }
+
+    func testConvertedSamplesAreDeliveredToChunkCallback() throws {
+        let recorder = AudioRecorder()
+        var deliveredChunks: [[Float]] = []
+        recorder.onConvertedAudioChunk = { chunk in
+            deliveredChunks.append(chunk)
+        }
+
+        recorder.test_convert(samples: [0.1, 0.2])
+        recorder.test_convert(samples: [0.3, 0.4])
+
+        XCTAssertEqual(deliveredChunks, [[0.1, 0.2], [0.3, 0.4]])
+    }
+
+    func testChunkDeliveryStillAccumulatesFinalAudioBuffer() throws {
+        let recorder = AudioRecorder()
+        var deliveredSamples: [Float] = []
+        recorder.onConvertedAudioChunk = { chunk in
+            deliveredSamples.append(contentsOf: chunk)
+        }
+
+        recorder.test_convert(samples: [0.1, 0.2])
+        recorder.test_convert(samples: [0.3, 0.4])
+
+        XCTAssertEqual(deliveredSamples, [0.1, 0.2, 0.3, 0.4])
+        XCTAssertEqual(recorder.audioBuffer, [0.1, 0.2, 0.3, 0.4])
+    }
 }

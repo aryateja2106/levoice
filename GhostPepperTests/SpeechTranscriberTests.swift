@@ -22,6 +22,13 @@ final class SpeechTranscriberTests: XCTestCase {
         XCTAssertEqual(SpeechModelCatalog.defaultModelID, "openai_whisper-small.en")
     }
 
+    func testFluidAudioSpeechModelsSupportSpeakerFiltering() {
+        XCTAssertFalse(SpeechModelCatalog.whisperTiny.supportsSpeakerFiltering)
+        XCTAssertFalse(SpeechModelCatalog.whisperSmallEnglish.supportsSpeakerFiltering)
+        XCTAssertFalse(SpeechModelCatalog.whisperSmallMultilingual.supportsSpeakerFiltering)
+        XCTAssertTrue(SpeechModelCatalog.parakeetV3.supportsSpeakerFiltering)
+    }
+
     // MARK: - ModelManager Tests
 
     func testModelManagerInitialState() {

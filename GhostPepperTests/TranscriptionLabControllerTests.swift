@@ -136,6 +136,87 @@ final class TranscriptionLabControllerTests: XCTestCase {
         XCTAssertEqual(controller.displayedExperimentCorrectedTranscription, "corrected")
     }
 
+    func testDiarizationVisualizationUsesArchivedSummaryForSelectedEntry() {
+        let diarizationSummary = DiarizationSummary(
+            spans: [
+                .init(speakerID: "Speaker 0", startTime: 0.0, endTime: 0.6, isKept: true),
+                .init(speakerID: "Speaker 1", startTime: 0.6, endTime: 1.0, isKept: false),
+                .init(speakerID: "Speaker 0", startTime: 1.0, endTime: 1.5, isKept: true)
+            ],
+            mergedKeptSpans: [
+                .init(startTime: 0.0, endTime: 0.6),
+                .init(startTime: 1.0, endTime: 1.5)
+            ],
+            targetSpeakerID: "Speaker 0",
+            targetSpeakerDuration: 1.1,
+            keptAudioDuration: 1.1,
+            usedFallback: false,
+            fallbackReason: nil
+        )
+        let entry = makeEntry(
+            createdAt: Date(),
+            speechModelID: "fluid_parakeet-v3",
+            cleanupModelName: "Qwen 3.5 2B (fast cleanup)",
+            audioDuration: 1.5,
+            diarizationSummary: diarizationSummary,
+            speakerFilteringEnabled: true,
+            speakerFilteringRan: true,
+            speakerFilteringUsedFallback: false
+        )
+        let controller = TranscriptionLabController(
+            defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
+            loadStageTimings: { [:] },
+            loadEntries: { [entry] },
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in "" },
+            runCleanup: { _, _, _, _, _ in
+                TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
+            }
+        )
+
+        controller.reloadEntries()
+        controller.selectEntry(entry.id)
+
+        XCTAssertEqual(
+            controller.diarizationVisualization,
+            .init(
+                audioDuration: 1.5,
+                targetSpeakerID: "Speaker 0",
+                keptAudioDuration: 1.1,
+                usedFallback: false,
+                fallbackReason: nil,
+                spans: [
+                    .init(speakerID: "Speaker 0", startTime: 0.0, endTime: 0.6, isKept: true),
+                    .init(speakerID: "Speaker 1", startTime: 0.6, endTime: 1.0, isKept: false),
+                    .init(speakerID: "Speaker 0", startTime: 1.0, endTime: 1.5, isKept: true)
+                ]
+            )
+        )
+    }
+
+    func testDiarizationVisualizationIsHiddenWithoutArchivedSummary() {
+        let entry = makeEntry(
+            createdAt: Date(),
+            speechModelID: "openai_whisper-small.en",
+            cleanupModelName: "Qwen 3.5 2B (fast cleanup)"
+        )
+        let controller = TranscriptionLabController(
+            defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
+            loadStageTimings: { [:] },
+            loadEntries: { [entry] },
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in "" },
+            runCleanup: { _, _, _, _, _ in
+                TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
+            }
+        )
+
+        controller.reloadEntries()
+        controller.selectEntry(entry.id)
+
+        XCTAssertNil(controller.diarizationVisualization)
+    }
+
     func testTranscriptionLabTextDiffMarksInsertedAndRemovedRuns() {
         let diff = TranscriptionLabTextDiff.segments(
             from: "the quick brown fox",
@@ -172,19 +253,28 @@ final class TranscriptionLabControllerTests: XCTestCase {
     private func makeEntry(
         createdAt: Date,
         speechModelID: String,
-        cleanupModelName: String
+        cleanupModelName: String,
+        audioDuration: TimeInterval = 1.25,
+        diarizationSummary: DiarizationSummary? = nil,
+        speakerFilteringEnabled: Bool = false,
+        speakerFilteringRan: Bool = false,
+        speakerFilteringUsedFallback: Bool = false
     ) -> TranscriptionLabEntry {
         TranscriptionLabEntry(
             id: UUID(),
             createdAt: createdAt,
             audioFileName: "sample.bin",
-            audioDuration: 1.25,
+            audioDuration: audioDuration,
             windowContext: OCRContext(windowContents: "Qwen 3.5 4B"),
             rawTranscription: "raw",
             correctedTranscription: "corrected",
             speechModelID: speechModelID,
             cleanupModelName: cleanupModelName,
-            cleanupUsedFallback: false
+            cleanupUsedFallback: false,
+            speakerFilteringEnabled: speakerFilteringEnabled,
+            speakerFilteringRan: speakerFilteringRan,
+            speakerFilteringUsedFallback: speakerFilteringUsedFallback,
+            diarizationSummary: diarizationSummary
         )
     }
 }
