@@ -58,6 +58,7 @@ final class TextCleaner {
     7. If it sounds like the user is trying to manually insert punctuation or spell something, you should honor that request.
     8. You must use the OCR output to check weird phrases.
     9. You may not change the user's word selection, unless you believe that the transcription was in error.
+    10. You must reproduce the entire transcript of what the user said.
 
     CRITICAL: Do NOT delete sentences. Do NOT remove context. Do NOT summarize. If you are unsure whether to keep or delete something, KEEP IT.
 
