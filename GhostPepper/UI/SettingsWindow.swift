@@ -790,6 +790,10 @@ struct SettingsView: View {
 
                 TranscriptionLabMetadataSummary(entry: entry)
 
+                if let diarizationVisualization = transcriptionLabController.diarizationVisualization {
+                    TranscriptionLabDiarizationSummaryView(visualization: diarizationVisualization)
+                }
+
                 HStack(alignment: .center, spacing: 12) {
                     Button {
                         playTranscriptionLabAudio(for: entry)
@@ -1333,6 +1337,121 @@ private struct TranscriptionLabMetadataSummary: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct TranscriptionLabDiarizationSummaryView: View {
+    let visualization: TranscriptionLabController.DiarizationVisualization
+
+    private var totalDuration: TimeInterval {
+        max(
+            visualization.audioDuration,
+            visualization.spans.map(\.endTime).max() ?? 0
+        )
+    }
+
+    private var summaryText: String {
+        if visualization.usedFallback {
+            if let fallbackReason = visualization.fallbackReason {
+                return "Speaker filtering fell back to the full recording (\(fallbackReasonText(for: fallbackReason)))."
+            }
+
+            return "Speaker filtering fell back to the full recording."
+        }
+
+        if let targetSpeakerID = visualization.targetSpeakerID {
+            return "Kept \(formattedDuration(visualization.keptAudioDuration)) from \(targetSpeakerID)."
+        }
+
+        return "Speaker filtering ran without a target speaker."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("Speaker filtering")
+                    .font(.subheadline.weight(.medium))
+
+                Spacer()
+
+                Text(summaryText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            GeometryReader { geometry in
+                HStack(spacing: 2) {
+                    ForEach(Array(visualization.spans.enumerated()), id: \.offset) { _, span in
+                        Rectangle()
+                            .fill(
+                                span.isKept
+                                ? Color.accentColor
+                                : Color(nsColor: .quaternaryLabelColor)
+                            )
+                            .frame(width: segmentWidth(for: span, totalWidth: geometry.size.width))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+            .frame(height: 8)
+            .clipShape(RoundedRectangle(cornerRadius: 999, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 999, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+
+            HStack(alignment: .center, spacing: 12) {
+                if let targetSpeakerID = visualization.targetSpeakerID {
+                    Text("Target: \(targetSpeakerID)")
+                }
+
+                Text("Kept \(formattedDuration(visualization.keptAudioDuration))")
+
+                if visualization.usedFallback {
+                    Text("Used fallback")
+                }
+
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func segmentWidth(
+        for span: TranscriptionLabController.DiarizationVisualization.Span,
+        totalWidth: CGFloat
+    ) -> CGFloat {
+        guard totalDuration > 0 else {
+            return totalWidth / CGFloat(max(visualization.spans.count, 1))
+        }
+
+        return max(totalWidth * spanDurationFraction(for: span), 3)
+    }
+
+    private func spanDurationFraction(
+        for span: TranscriptionLabController.DiarizationVisualization.Span
+    ) -> CGFloat {
+        CGFloat(max(0, span.endTime - span.startTime) / totalDuration)
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        String(format: "%.1fs", duration)
+    }
+
+    private func fallbackReasonText(for reason: DiarizationSummary.FallbackReason) -> String {
+        switch reason {
+        case .noUsableSpeakerSpans:
+            return "no usable speaker spans"
+        case .noSpeakerReachedThreshold:
+            return "no speaker reached the selection threshold"
+        case .insufficientKeptAudio:
+            return "kept audio was too short"
+        case .filteredAudioExtractionFailed:
+            return "filtered audio extraction failed"
+        case .emptyFilteredTranscription:
+            return "filtered transcription came back empty"
+        }
     }
 }
 

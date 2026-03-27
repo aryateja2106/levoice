@@ -22,6 +22,22 @@ final class TranscriptionLabController: ObservableObject {
         case cleanup
     }
 
+    struct DiarizationVisualization: Equatable {
+        struct Span: Equatable {
+            let speakerID: String
+            let startTime: TimeInterval
+            let endTime: TimeInterval
+            let isKept: Bool
+        }
+
+        let audioDuration: TimeInterval
+        let targetSpeakerID: String?
+        let keptAudioDuration: TimeInterval
+        let usedFallback: Bool
+        let fallbackReason: DiarizationSummary.FallbackReason?
+        let spans: [Span]
+    }
+
     @Published private(set) var entries: [TranscriptionLabEntry] = []
     @Published var selectedEntryID: UUID?
     @Published var selectedSpeechModelID: String
@@ -114,6 +130,29 @@ final class TranscriptionLabController: ObservableObject {
         }
 
         return originalStageTimingsByEntryID[selectedEntryID]?.cleanupDuration
+    }
+
+    var diarizationVisualization: DiarizationVisualization? {
+        guard let entry = selectedEntry,
+              let summary = entry.diarizationSummary else {
+            return nil
+        }
+
+        return DiarizationVisualization(
+            audioDuration: entry.audioDuration,
+            targetSpeakerID: summary.targetSpeakerID,
+            keptAudioDuration: summary.keptAudioDuration,
+            usedFallback: summary.usedFallback,
+            fallbackReason: summary.fallbackReason,
+            spans: summary.spans.map {
+                DiarizationVisualization.Span(
+                    speakerID: $0.speakerID,
+                    startTime: $0.startTime,
+                    endTime: $0.endTime,
+                    isKept: $0.isKept
+                )
+            }
+        )
     }
 
     func audioURL(for entry: TranscriptionLabEntry) -> URL {
