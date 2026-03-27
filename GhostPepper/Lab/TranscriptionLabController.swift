@@ -16,6 +16,8 @@ final class TranscriptionLabController: ObservableObject {
         _ prompt: String,
         _ includeWindowContext: Bool
     ) async throws -> TranscriptionLabCleanupResult
+    typealias SelectedSpeechModelSynchronizer = (_ speechModelID: String) -> Void
+    typealias SelectedCleanupModelSynchronizer = (_ cleanupModelKind: LocalCleanupModelKind) -> Void
 
     enum RunningStage {
         case transcription
@@ -40,8 +42,16 @@ final class TranscriptionLabController: ObservableObject {
 
     @Published private(set) var entries: [TranscriptionLabEntry] = []
     @Published var selectedEntryID: UUID?
-    @Published var selectedSpeechModelID: String
-    @Published var selectedCleanupModelKind: LocalCleanupModelKind
+    @Published var selectedSpeechModelID: String {
+        didSet {
+            synchronizeSelectedSpeechModelIDIfNeeded()
+        }
+    }
+    @Published var selectedCleanupModelKind: LocalCleanupModelKind {
+        didSet {
+            synchronizeSelectedCleanupModelKindIfNeeded()
+        }
+    }
     @Published var usesCapturedOCR = true
     @Published private(set) var experimentRawTranscription: String = ""
     @Published private(set) var experimentCorrectedTranscription: String = ""
@@ -56,7 +66,10 @@ final class TranscriptionLabController: ObservableObject {
     private let audioURLForEntry: AudioURLProvider
     private let runTranscription: TranscriptionRunner
     private let runCleanup: CleanupRunner
+    private let syncSelectedSpeechModelID: SelectedSpeechModelSynchronizer
+    private let syncSelectedCleanupModelKind: SelectedCleanupModelSynchronizer
     private var originalStageTimingsByEntryID: [UUID: TranscriptionLabStageTimings] = [:]
+    private var suppressSelectionSynchronization = false
 
     init(
         defaultSpeechModelID: String,
@@ -65,7 +78,9 @@ final class TranscriptionLabController: ObservableObject {
         loadEntries: @escaping EntryLoader,
         audioURLForEntry: @escaping AudioURLProvider,
         runTranscription: @escaping TranscriptionRunner,
-        runCleanup: @escaping CleanupRunner
+        runCleanup: @escaping CleanupRunner,
+        syncSelectedSpeechModelID: @escaping SelectedSpeechModelSynchronizer = { _ in },
+        syncSelectedCleanupModelKind: @escaping SelectedCleanupModelSynchronizer = { _ in }
     ) {
         self.selectedSpeechModelID = defaultSpeechModelID
         self.selectedCleanupModelKind = defaultCleanupModelKind
@@ -74,6 +89,18 @@ final class TranscriptionLabController: ObservableObject {
         self.audioURLForEntry = audioURLForEntry
         self.runTranscription = runTranscription
         self.runCleanup = runCleanup
+        self.syncSelectedSpeechModelID = syncSelectedSpeechModelID
+        self.syncSelectedCleanupModelKind = syncSelectedCleanupModelKind
+    }
+
+    func applyCurrentRerunDefaults(
+        speechModelID: String,
+        cleanupModelKind: LocalCleanupModelKind
+    ) {
+        suppressSelectionSynchronization = true
+        selectedSpeechModelID = speechModelID
+        selectedCleanupModelKind = cleanupModelKind
+        suppressSelectionSynchronization = false
     }
 
     var selectedEntry: TranscriptionLabEntry? {
@@ -198,8 +225,6 @@ final class TranscriptionLabController: ObservableObject {
         }
 
         selectedEntryID = id
-        selectedSpeechModelID = SpeechModelCatalog.model(named: entry.speechModelID)?.name ?? selectedSpeechModelID
-        selectedCleanupModelKind = Self.cleanupModelKind(for: entry)
         usesCapturedOCR = entry.windowContext != nil
         experimentRawTranscription = ""
         experimentCorrectedTranscription = ""
@@ -298,7 +323,19 @@ final class TranscriptionLabController: ObservableObject {
         runningStage = nil
     }
 
-    private static func cleanupModelKind(for entry: TranscriptionLabEntry) -> LocalCleanupModelKind {
-        TextCleanupManager.cleanupModelKind(matchingArchivedName: entry.cleanupModelName)
+    private func synchronizeSelectedSpeechModelIDIfNeeded() {
+        guard !suppressSelectionSynchronization else {
+            return
+        }
+
+        syncSelectedSpeechModelID(selectedSpeechModelID)
+    }
+
+    private func synchronizeSelectedCleanupModelKindIfNeeded() {
+        guard !suppressSelectionSynchronization else {
+            return
+        }
+
+        syncSelectedCleanupModelKind(selectedCleanupModelKind)
     }
 }

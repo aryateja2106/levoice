@@ -38,6 +38,55 @@ final class TranscriptionLabControllerTests: XCTestCase {
         XCTAssertEqual(controller.selectedCleanupModelKind, LocalCleanupModelKind.qwen35_4b_q4_k_m)
     }
 
+    func testSelectingEntryDoesNotChangeCurrentRerunModels() {
+        let entry = makeEntry(
+            createdAt: Date(),
+            speechModelID: "openai_whisper-small.en",
+            cleanupModelName: "Qwen 3.5 4B (full cleanup)"
+        )
+        let controller = TranscriptionLabController(
+            defaultSpeechModelID: "fluid_parakeet-v3",
+            defaultCleanupModelKind: .qwen35_2b_q4_k_m,
+            loadStageTimings: { [:] },
+            loadEntries: { [entry] },
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in "" },
+            runCleanup: { _, _, _, _, _ in
+                TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
+            }
+        )
+
+        controller.reloadEntries()
+        controller.selectEntry(entry.id)
+
+        XCTAssertEqual(controller.selectedSpeechModelID, "fluid_parakeet-v3")
+        XCTAssertEqual(controller.selectedCleanupModelKind, .qwen35_2b_q4_k_m)
+    }
+
+    func testChangingRerunModelsImmediatelyInvokesSyncCallbacks() {
+        var synchronizedSpeechModelIDs: [String] = []
+        var synchronizedCleanupModelKinds: [LocalCleanupModelKind] = []
+        let controller = TranscriptionLabController(
+            defaultSpeechModelID: SpeechModelCatalog.defaultModelID,
+            defaultCleanupModelKind: .qwen35_4b_q4_k_m,
+            loadStageTimings: { [:] },
+            loadEntries: { [] },
+            audioURLForEntry: { _ in URL(fileURLWithPath: "/tmp/sample.bin") },
+            runTranscription: { _, _ in "" },
+            runCleanup: { _, _, _, _, _ in
+                TranscriptionLabCleanupResult(correctedTranscription: "", cleanupUsedFallback: false)
+            },
+            syncSelectedSpeechModelID: { synchronizedSpeechModelIDs.append($0) },
+            syncSelectedCleanupModelKind: { synchronizedCleanupModelKinds.append($0) }
+        )
+
+        controller.selectedSpeechModelID = "fluid_parakeet-v3"
+        controller.selectedCleanupModelKind = .qwen35_2b_q4_k_m
+
+        XCTAssertEqual(synchronizedSpeechModelIDs, ["fluid_parakeet-v3"])
+        XCTAssertEqual(synchronizedCleanupModelKinds, [.qwen35_2b_q4_k_m])
+    }
+
     func testStageRerunsUpdateExperimentOutputs() async {
         let entry = makeEntry(
             createdAt: Date(),

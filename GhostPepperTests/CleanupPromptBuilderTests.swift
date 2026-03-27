@@ -2,17 +2,16 @@ import XCTest
 @testable import GhostPepper
 
 final class CleanupPromptBuilderTests: XCTestCase {
-    func testDefaultPromptUsesStructuredXMLSections() {
+    func testDefaultPromptUsesPersonalPromptShape() {
         let prompt = TextCleaner.defaultPrompt
 
-        XCTAssertTrue(prompt.contains("<TASK>"))
-        XCTAssertTrue(prompt.contains("</TASK>"))
-        XCTAssertTrue(prompt.contains("<RULES>"))
-        XCTAssertTrue(prompt.contains("</RULES>"))
+        XCTAssertTrue(prompt.hasPrefix("Your job is to clean up transcribed audio."))
+        XCTAssertTrue(prompt.contains("Repeat back EVERYTHING the user says."))
+        XCTAssertTrue(prompt.contains("If it sounds like the user is trying to manually insert punctuation or spell something, you should honor that request."))
         XCTAssertTrue(prompt.contains("<EXAMPLES>"))
         XCTAssertTrue(prompt.contains("</EXAMPLES>"))
-        XCTAssertTrue(prompt.contains("<INPUT>"))
-        XCTAssertTrue(prompt.contains("<OUTPUT>"))
+        XCTAssertFalse(prompt.contains("<TASK>"))
+        XCTAssertFalse(prompt.contains("<RULE id="))
     }
 
     func testBuilderIncludesWindowContentsWrapperWhenContextEnabled() {

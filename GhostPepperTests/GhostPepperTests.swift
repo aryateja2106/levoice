@@ -719,6 +719,10 @@ final class GhostPepperTests: XCTestCase {
         XCTAssertEqual(windows.count, 1)
     }
 
+    func testSettingsSectionUsesHistoryTitleForSavedRecordings() {
+        XCTAssertEqual(SettingsSection.transcriptionLab.title, "History")
+    }
+
     func testAppStateShowDebugLogHostsSwiftUIViaContentViewController() throws {
         closeWindows(titled: "Ghost Pepper Debug Log")
         defer { closeWindows(titled: "Ghost Pepper Debug Log") }

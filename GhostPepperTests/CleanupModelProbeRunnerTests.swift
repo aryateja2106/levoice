@@ -180,7 +180,7 @@ final class CleanupModelProbeRunnerTests: XCTestCase {
         XCTAssertEqual(transcript.thinkingMode, .suppressed)
     }
 
-    func testRunnerAddsStrictAntiRewritePromptForCompactCleanupModel() async {
+    func testRunnerLeavesPromptUnchangedForCompactCleanupModel() async {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         defer { defaults.removePersistentDomain(forName: #function) }
@@ -190,10 +190,7 @@ final class CleanupModelProbeRunnerTests: XCTestCase {
             promptBuilder: CleanupPromptBuilder(),
             execute: { _, prompt, modelKind, _ in
                 XCTAssertEqual(modelKind, .qwen35_0_8b_q4_k_m)
-                XCTAssertTrue(prompt.hasPrefix("Base prompt"))
-                XCTAssertTrue(prompt.contains("ADDITIONAL STRICT RULES"))
-                XCTAssertTrue(prompt.contains("This is copy editing, not rewriting."))
-                XCTAssertTrue(prompt.contains("Return ONLY the cleaned transcript text."))
+                XCTAssertEqual(prompt, "Base prompt")
 
                 return CleanupModelProbeRawResult(
                     modelKind: .qwen35_0_8b_q4_k_m,
@@ -211,6 +208,6 @@ final class CleanupModelProbeRunnerTests: XCTestCase {
             prompt: "Base prompt"
         )
 
-        XCTAssertTrue(transcript.finalPrompt.contains("ADDITIONAL STRICT RULES"))
+        XCTAssertEqual(transcript.finalPrompt, "Base prompt")
     }
 }

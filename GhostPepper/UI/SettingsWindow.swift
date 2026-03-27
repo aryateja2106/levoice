@@ -87,7 +87,7 @@ final class SettingsDictationTestController: ObservableObject {
 
 // MARK: - Settings View
 
-private enum SettingsSection: String, CaseIterable, Identifiable {
+enum SettingsSection: String, CaseIterable, Identifiable {
     case recording
     case cleanup
     case corrections
@@ -103,7 +103,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .cleanup: "Cleanup"
         case .corrections: "Corrections"
         case .models: "Models"
-        case .transcriptionLab: "Transcription Lab"
+        case .transcriptionLab: "History"
         case .general: "General"
         }
     }
@@ -114,7 +114,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .cleanup: "Prompt cleanup, OCR context, and learning behavior."
         case .corrections: "Words and replacements Ghost Pepper should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
-        case .transcriptionLab: "Replay saved recordings with different speech models, cleanup models, and prompts."
+        case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
         case .general: "Startup behavior and app-wide preferences."
         }
     }
@@ -184,6 +184,18 @@ struct SettingsView: View {
                         prompt: prompt,
                         includeWindowContext: includeWindowContext
                     )
+                },
+                syncSelectedSpeechModelID: { speechModelID in
+                    appState.speechModel = speechModelID
+                    Task {
+                        await appState.loadSpeechModel(name: speechModelID)
+                    }
+                },
+                syncSelectedCleanupModelKind: { cleanupModelKind in
+                    appState.textCleanupManager.selectedCleanupModelKind = cleanupModelKind
+                    Task {
+                        await appState.textCleanupManager.loadModel(kind: cleanupModelKind)
+                    }
                 }
             )
         )
@@ -280,6 +292,7 @@ struct SettingsView: View {
             inputDevices = AudioDeviceManager.listInputDevices()
             selectedDeviceID = AudioDeviceManager.defaultInputDeviceID() ?? 0
             refreshScreenRecordingPermission()
+            syncTranscriptionLabRerunDefaults()
             transcriptionLabController.reloadEntries()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -287,8 +300,15 @@ struct SettingsView: View {
         }
         .onChange(of: selectedSection) { _, newSection in
             if newSection == .transcriptionLab {
+                syncTranscriptionLabRerunDefaults()
                 transcriptionLabController.reloadEntries()
             }
+        }
+        .onChange(of: appState.speechModel) { _, _ in
+            syncTranscriptionLabRerunDefaults()
+        }
+        .onChange(of: appState.textCleanupManager.selectedCleanupModelKind) { _, _ in
+            syncTranscriptionLabRerunDefaults()
         }
         .onDisappear {
             if dictationTestController.isRecording {
@@ -299,6 +319,13 @@ struct SettingsView: View {
 
     private func refreshScreenRecordingPermission() {
         hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
+    }
+
+    private func syncTranscriptionLabRerunDefaults() {
+        transcriptionLabController.applyCurrentRerunDefaults(
+            speechModelID: appState.speechModel,
+            cleanupModelKind: appState.textCleanupManager.selectedCleanupModelKind
+        )
     }
 
     private func playTranscriptionLabAudio(for entry: TranscriptionLabEntry) {
