@@ -3,6 +3,66 @@ import XCTest
 @testable import GhostPepper
 
 final class FocusedElementLocatorTests: XCTestCase {
+    func testPasteTargetDecisionUsesDirectFocusedTargetWhenAvailable() {
+        let decision = FocusedElementLocator.canPasteIntoObservedTarget(
+            directFocusedTargetAvailable: true,
+            hasDirectFocusedElement: true,
+            observation: .init(processID: 42, windowID: 99, status: .nonEditable),
+            processID: 42,
+            windowID: 99
+        )
+
+        XCTAssertTrue(decision)
+    }
+
+    func testPasteTargetDecisionUsesObservedEditableTargetForMatchingWindow() {
+        let decision = FocusedElementLocator.canPasteIntoObservedTarget(
+            directFocusedTargetAvailable: false,
+            hasDirectFocusedElement: false,
+            observation: .init(processID: 42, windowID: 99, status: .editable),
+            processID: 42,
+            windowID: 99
+        )
+
+        XCTAssertTrue(decision)
+    }
+
+    func testPasteTargetDecisionRejectsObservedEditableTargetForDifferentWindow() {
+        let decision = FocusedElementLocator.canPasteIntoObservedTarget(
+            directFocusedTargetAvailable: false,
+            hasDirectFocusedElement: false,
+            observation: .init(processID: 42, windowID: 99, status: .editable),
+            processID: 42,
+            windowID: 100
+        )
+
+        XCTAssertFalse(decision)
+    }
+
+    func testPasteTargetDecisionRejectsObservedNonEditableTarget() {
+        let decision = FocusedElementLocator.canPasteIntoObservedTarget(
+            directFocusedTargetAvailable: false,
+            hasDirectFocusedElement: false,
+            observation: .init(processID: 42, windowID: 99, status: .nonEditable),
+            processID: 42,
+            windowID: 99
+        )
+
+        XCTAssertFalse(decision)
+    }
+
+    func testPasteTargetDecisionRejectsObservedEditableTargetWhenDifferentFocusedElementExists() {
+        let decision = FocusedElementLocator.canPasteIntoObservedTarget(
+            directFocusedTargetAvailable: false,
+            hasDirectFocusedElement: true,
+            observation: .init(processID: 42, windowID: 99, status: .editable),
+            processID: 42,
+            windowID: 99
+        )
+
+        XCTAssertFalse(decision)
+    }
+
     func testFirstAvailableTextFallsBackToAncestorValue() {
         let text = FocusedElementLocator.firstAvailableText(
             startingAt: 1,
