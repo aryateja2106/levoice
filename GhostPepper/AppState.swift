@@ -64,8 +64,12 @@ class AppState: ObservableObject {
     @AppStorage("cleanupEnabled") var cleanupEnabled: Bool = true
     @AppStorage("cleanupPrompt") var cleanupPrompt: String = TextCleaner.defaultPrompt
     @AppStorage("speechModel") var speechModel: String = SpeechModelCatalog.defaultModelID
+    @AppStorage("pepperChatHost") var pepperChatHost: String = "https://api.zo.computer"
+    @AppStorage("pepperChatApiKey") var pepperChatApiKey: String = ""
+    @AppStorage("pepperChatIncludeScreenContext") var pepperChatIncludeScreenContext: Bool = true
     @Published private(set) var pushToTalkChord: KeyChord
     @Published private(set) var toggleToTalkChord: KeyChord
+    @Published private(set) var pepperChatChord: KeyChord
     @Published var postPasteLearningEnabled: Bool {
         didSet {
             cleanupSettingsDefaults.set(
@@ -149,9 +153,15 @@ class AppState: ObservableObject {
         PhysicalKey(keyCode: 49)   // Space
     ]))!
 
+    nonisolated static let defaultPepperChatChord = KeyChord(keys: Set([
+        PhysicalKey(keyCode: 54),  // Right Command
+        PhysicalKey(keyCode: 31)   // O
+    ]))!
+
     nonisolated static let defaultShortcutBindings: [ChordAction: KeyChord] = [
         .pushToTalk: defaultPushToTalkChord,
-        .toggleToTalk: defaultToggleToTalkChord
+        .toggleToTalk: defaultToggleToTalkChord,
+        .pepperChat: defaultPepperChatChord
     ]
 
     init(
@@ -182,6 +192,7 @@ class AppState: ObservableObject {
         self.inputMonitoringPrompter = inputMonitoringPrompter
         self.pushToTalkChord = chordBindingStore.binding(for: .pushToTalk) ?? AppState.defaultPushToTalkChord
         self.toggleToTalkChord = chordBindingStore.binding(for: .toggleToTalk) ?? AppState.defaultToggleToTalkChord
+        self.pepperChatChord = chordBindingStore.binding(for: .pepperChat) ?? AppState.defaultPepperChatChord
         self.textCleanupManager = textCleanupManager ?? TextCleanupManager(defaults: cleanupSettingsDefaults)
         self.frontmostWindowOCRService = frontmostWindowOCRService
         self.recordingOCRPrefetch = RecordingOCRPrefetch { [frontmostWindowOCRService] customWords in
@@ -407,6 +418,17 @@ class AppState: ObservableObject {
             Task { @MainActor in
                 self?.activePerformanceTrace?.hotkeyLiftedAt = Date()
                 await self?.stopRecordingAndTranscribe()
+            }
+        }
+
+        hotkeyMonitor.onPepperChatStart = { [weak self] in
+            Task { @MainActor in
+                self?.beginPepperChatRecording()
+            }
+        }
+        hotkeyMonitor.onPepperChatStop = { [weak self] in
+            Task { @MainActor in
+                self?.endPepperChatRecording()
             }
         }
 
@@ -718,6 +740,15 @@ class AppState: ObservableObject {
     private let promptEditorController = PromptEditorController()
     private let cleanupTranscriptWindowController = CleanupTranscriptWindowController()
     private let debugLogWindowController = DebugLogWindowController()
+    private let pepperChatWindowController = PepperChatWindowController()
+    private(set) lazy var pepperChatSession: PepperChatSession = {
+        let session = PepperChatSession(transcriber: transcriber)
+        session.debugLogger = debugLogStore.record
+        session.updateBackendProvider { [weak self] in
+            self?.makePepperChatBackend()
+        }
+        return session
+    }()
 
     func showSettings() {
         settingsController.show(appState: self)
@@ -735,16 +766,57 @@ class AppState: ObservableObject {
         debugLogWindowController.show(debugLogStore: debugLogStore)
     }
 
+    func showPepperChat() {
+        pepperChatWindowController.show(session: pepperChatSession)
+    }
+
+    private var pepperChatRecorder: AudioRecorder?
+
+    func beginPepperChatRecording() {
+        let recorder = AudioRecorder()
+        recorder.prewarm()
+        try? recorder.startRecording()
+        pepperChatRecorder = recorder
+        pepperChatSession.isRecording = true
+        pepperChatWindowController.show(session: pepperChatSession)
+        debugLogStore.record(category: .hotkey, message: "Pepper Chat recording started.")
+    }
+
+    func endPepperChatRecording() {
+        guard let recorder = pepperChatRecorder else { return }
+        pepperChatSession.isRecording = false
+        pepperChatRecorder = nil
+        debugLogStore.record(category: .hotkey, message: "Pepper Chat recording stopped.")
+
+        Task {
+            let buffer = await recorder.stopRecording()
+            await pepperChatSession.processRecording(
+                audioBuffer: buffer,
+                includeScreenContext: pepperChatIncludeScreenContext
+            )
+            // Pop the window back up if it was minimized
+            pepperChatWindowController.showIfOpen()
+        }
+    }
+
+    func makePepperChatBackend() -> PepperChatBackend? {
+        guard !pepperChatApiKey.isEmpty else { return nil }
+        let host = pepperChatHost.isEmpty ? "https://api.zo.computer" : pepperChatHost
+        return ZoBackend(host: host, apiKey: pepperChatApiKey)
+    }
+
     private var shortcutBindings: [ChordAction: KeyChord] {
         [
             .pushToTalk: pushToTalkChord,
-            .toggleToTalk: toggleToTalkChord
+            .toggleToTalk: toggleToTalkChord,
+            .pepperChat: pepperChatChord
         ]
     }
 
     private func persistShortcutBindingsIfNeeded() {
         try? chordBindingStore.setBinding(pushToTalkChord, for: .pushToTalk)
         try? chordBindingStore.setBinding(toggleToTalkChord, for: .toggleToTalk)
+        try? chordBindingStore.setBinding(pepperChatChord, for: .pepperChat)
     }
 
     private var canAttemptCleanup: Bool {
@@ -991,6 +1063,7 @@ class AppState: ObservableObject {
     func updateShortcut(_ chord: KeyChord, for action: ChordAction) {
         let previousPushChord = pushToTalkChord
         let previousToggleChord = toggleToTalkChord
+        let previousPepperChatChord = pepperChatChord
 
         do {
             try chordBindingStore.setBinding(chord, for: action)
@@ -1001,12 +1074,15 @@ class AppState: ObservableObject {
                 pushToTalkChord = chord
             case .toggleToTalk:
                 toggleToTalkChord = chord
+            case .pepperChat:
+                pepperChatChord = chord
             }
 
             hotkeyMonitor.updateBindings(shortcutBindings)
         } catch {
             pushToTalkChord = previousPushChord
             toggleToTalkChord = previousToggleChord
+            pepperChatChord = previousPepperChatChord
             shortcutErrorMessage = "That shortcut is already in use."
         }
     }

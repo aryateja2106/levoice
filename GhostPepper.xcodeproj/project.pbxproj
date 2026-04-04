@@ -16,6 +16,7 @@
 		A1D100040000000000000001 /* FluidAudioSpeechSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D200040000000000000001 /* FluidAudioSpeechSessionTests.swift */; };
 		A1D100050000000000000001 /* RecordingSessionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D200050000000000000001 /* RecordingSessionCoordinatorTests.swift */; };
 		0A1823314AE4FF4E17DCF627 /* sprite_frame_0.png in Resources */ = {isa = PBXBuildFile; fileRef = 2AF744C59EEAE51FC81BE6D6 /* sprite_frame_0.png */; };
+		C1D2E3F4A5B6C7D8E9F0A1B2 /* ghost-pepper-character.png in Resources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B6C7D8E9F0A1B3 /* ghost-pepper-character.png */; };
 		0BC5D4645D21CA8AA000972E /* RecordingOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3540C6212101C885EA22CD /* RecordingOverlay.swift */; };
 		0CDA12F05A7C7464334FDD37 /* RecordingOCRPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E9AADC67C525B0A9E382AB /* RecordingOCRPrefetch.swift */; };
 		0D32E8DDD47F77F86D9C1816 /* CleanupModelProbeRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B93B4F9F40EE6BD8525677 /* CleanupModelProbeRunnerTests.swift */; };
@@ -120,6 +121,10 @@
 		FAF9039162919F44252430A3 /* sprite_frame_3.png in Resources */ = {isa = PBXBuildFile; fileRef = DD3CB656299CBD7D3F6613F3 /* sprite_frame_3.png */; };
 		FC6AACB283BD40C4FBA78F3D /* GhostPepperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363A3F98CDFC4CCAD927835C /* GhostPepperTests.swift */; };
 		FD94594085550A2A71F3F533 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C299194463F439E81D6BC /* ShortcutRecorderView.swift */; };
+		B2C3D4E5F6A7B8C9D0E1F3A1 /* PepperChatBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A1 /* PepperChatBackend.swift */; };
+		B2C3D4E5F6A7B8C9D0E1F3A2 /* ZoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A2 /* ZoBackend.swift */; };
+		B2C3D4E5F6A7B8C9D0E1F3A4 /* PepperChatSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A4 /* PepperChatSession.swift */; };
+		B2C3D4E5F6A7B8C9D0E1F3A5 /* PepperChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A5 /* PepperChatWindow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -152,6 +157,7 @@
 		29EC2918929DBE8F6F9743A1 /* DebugLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStore.swift; sourceTree = "<group>"; };
 		2ADE6885C71A11CEC8B2A50E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2AF744C59EEAE51FC81BE6D6 /* sprite_frame_0.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sprite_frame_0.png; sourceTree = "<group>"; };
+		C1D2E3F4A5B6C7D8E9F0A1B3 /* ghost-pepper-character.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "ghost-pepper-character.png"; sourceTree = "<group>"; };
 		2B43697CC08695B8E8F8AD01 /* PromptEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptEditorWindow.swift; sourceTree = "<group>"; };
 		2F8EC51C74573DD4A47E1CEB /* CleanupBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupBackend.swift; sourceTree = "<group>"; };
 		3252290627807046966D956B /* CleanupSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupSettings.swift; sourceTree = "<group>"; };
@@ -246,6 +252,10 @@
 		FDC6FD42E70C7163E281332B /* CleanupPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupPromptBuilder.swift; sourceTree = "<group>"; };
 		FECE990F52DED36EC4C5458D /* AppRelauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRelauncher.swift; sourceTree = "<group>"; };
 		FF88392E6B9F0168E43B8C51 /* HotkeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMonitor.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A1 /* PepperChatBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PepperChatBackend.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A2 /* ZoBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoBackend.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A4 /* PepperChatSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PepperChatSession.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A5 /* PepperChatWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PepperChatWindow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -314,6 +324,7 @@
 				1ECD5CE040C24B0A348523BF /* Debug */,
 				5A7262C13F0644663C842FA0 /* Input */,
 				4E59EAEBA3CA7C181A8ECEBA /* Lab */,
+				B2C3D4E5F6A7B8C9D0E1F4A1 /* PepperChat */,
 				4694A9A6CDA9C5FA6623F377 /* Resources */,
 				B242BF76D6E42784C2A05EB5 /* Transcription */,
 				50C964CA46111D1FD8AFE84B /* UI */,
@@ -351,6 +362,7 @@
 		4694A9A6CDA9C5FA6623F377 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				C1D2E3F4A5B6C7D8E9F0A1B3 /* ghost-pepper-character.png */,
 				2AF744C59EEAE51FC81BE6D6 /* sprite_frame_0.png */,
 				79231C6829FD88741536FF4A /* sprite_frame_0@2x.png */,
 				24362CABE7BBCAF53CB9B4A8 /* sprite_frame_1.png */,
@@ -383,6 +395,7 @@
 				AACCB8CD3CFA3BA1C91B5B87 /* MenuBarView.swift */,
 				3B68F46BA90BDD633868A8CE /* ModelInventoryViews.swift */,
 				F0EBA7ECAEFCAC714F83C2C5 /* OnboardingWindow.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A5 /* PepperChatWindow.swift */,
 				2B43697CC08695B8E8F8AD01 /* PromptEditorWindow.swift */,
 				9A3540C6212101C885EA22CD /* RecordingOverlay.swift */,
 				11E4B61BA7270EEC11A8AC69 /* ScreenRecordingPermissionController.swift */,
@@ -390,6 +403,16 @@
 				A91C299194463F439E81D6BC /* ShortcutRecorderView.swift */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		B2C3D4E5F6A7B8C9D0E1F4A1 /* PepperChat */ = {
+			isa = PBXGroup;
+			children = (
+				B2C3D4E5F6A7B8C9D0E1F2A1 /* PepperChatBackend.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A4 /* PepperChatSession.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A2 /* ZoBackend.swift */,
+			);
+			path = PepperChat;
 			sourceTree = "<group>";
 		};
 		5A7262C13F0644663C842FA0 /* Input */ = {
@@ -637,6 +660,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9BE17BC60B1F9CFD3747A844 /* Assets.xcassets in Resources */,
+				C1D2E3F4A5B6C7D8E9F0A1B2 /* ghost-pepper-character.png in Resources */,
 				0A1823314AE4FF4E17DCF627 /* sprite_frame_0.png in Resources */,
 				527B55EBCA9ACB4EC0FBC618 /* sprite_frame_0@2x.png in Resources */,
 				78678A0067436B71C2C1C3C9 /* sprite_frame_1.png in Resources */,
@@ -689,6 +713,9 @@
 				CBDE26BEEBD0419A73D09DFC /* OCRRequestFactory.swift in Sources */,
 				CE62853358A180E54150BCA4 /* OnboardingWindow.swift in Sources */,
 				572FDC1B8744EECF73C0EA86 /* PasteSession.swift in Sources */,
+				B2C3D4E5F6A7B8C9D0E1F3A1 /* PepperChatBackend.swift in Sources */,
+				B2C3D4E5F6A7B8C9D0E1F3A4 /* PepperChatSession.swift in Sources */,
+				B2C3D4E5F6A7B8C9D0E1F3A5 /* PepperChatWindow.swift in Sources */,
 				408C8D6C7BE897429324F4F1 /* PerformanceTrace.swift in Sources */,
 				A3183D30BAD0A1C2712E033F /* PermissionChecker.swift in Sources */,
 				4F4C2206E3914B226A9DE4C0 /* PhysicalKey.swift in Sources */,
@@ -713,6 +740,7 @@
 				DFAB770908C43B46C21F6986 /* TranscriptionLabStore.swift in Sources */,
 				829C83DF25112D375A8DB767 /* UpdaterController.swift in Sources */,
 				750B0226D3A035D24259B606 /* WindowCaptureService.swift in Sources */,
+				B2C3D4E5F6A7B8C9D0E1F3A2 /* ZoBackend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

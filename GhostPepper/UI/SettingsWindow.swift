@@ -93,6 +93,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case corrections
     case models
     case transcriptionLab
+    case pepperChat
     case general
 
     var id: String { rawValue }
@@ -104,6 +105,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Corrections"
         case .models: "Models"
         case .transcriptionLab: "History"
+        case .pepperChat: "Pepper Chat"
         case .general: "General"
         }
     }
@@ -115,6 +117,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Words and replacements Ghost Pepper should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
         case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
+        case .pepperChat: "Voice-to-AI assistant with streaming responses."
         case .general: "Startup behavior and app-wide preferences."
         }
     }
@@ -126,6 +129,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "text.badge.checkmark"
         case .models: "brain"
         case .transcriptionLab: "waveform.badge.magnifyingglass"
+        case .pepperChat: "bubble.right"
         case .general: "gearshape"
         }
     }
@@ -415,6 +419,8 @@ struct SettingsView: View {
                 modelsSection
             case .transcriptionLab:
                 transcriptionLabSection
+            case .pepperChat:
+                pepperChatSection
             case .general:
                 generalSection
             }
@@ -1035,6 +1041,80 @@ struct SettingsView: View {
                     Text(errorMessage)
                         .font(.callout)
                         .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    @State private var pepperChatTestResult: String?
+
+    private var pepperChatSection: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            SettingsCard("Shortcut") {
+                ShortcutRecorderView(
+                    title: "Pepper Chat (hold to speak)",
+                    chord: appState.pepperChatChord,
+                    onRecordingStateChange: appState.setShortcutCaptureActive
+                ) { chord in
+                    appState.updateShortcut(chord, for: .pepperChat)
+                }
+
+                Text("Hold the shortcut, speak your question, then release. The response appears in a floating chat window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard("Zo API") {
+                VStack(alignment: .leading, spacing: 18) {
+                    SettingsField("API Key") {
+                        SecureField("Zo API key (zo_sk_...)", text: $appState.pepperChatApiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 320)
+                    }
+
+                    Text("Get your API key from [Zo Settings > Advanced > Access Tokens](https://zo.computer).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle(
+                        "Include screen context",
+                        isOn: $appState.pepperChatIncludeScreenContext
+                    )
+
+                    Text("When enabled, text from your frontmost window is sent as context with your voice prompt.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Button("Test Connection") {
+                            pepperChatTestResult = nil
+                            Task {
+                                do {
+                                    let backend = appState.makePepperChatBackend()
+                                    guard let backend else {
+                                        pepperChatTestResult = "Add your Zo API key above."
+                                        return
+                                    }
+                                    var response = ""
+                                    try await backend.send(prompt: "Say hello in one short sentence.", screenContext: nil) { chunk in
+                                        response += chunk
+                                    }
+                                    pepperChatTestResult = response.isEmpty ? "Connected but got empty response." : "Connected! Response: \(String(response.prefix(100)))"
+                                } catch {
+                                    pepperChatTestResult = "Failed: \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+
+                        if let result = pepperChatTestResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
+                                .lineLimit(2)
+                        }
+                    }
                 }
             }
         }
