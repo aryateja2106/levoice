@@ -20,6 +20,23 @@ struct MenuBarView: View {
                 appState.showDebugLog()
             }
 
+            if appState.meetingTranscriptEnabled {
+                Divider()
+
+                if appState.activeMeetingSession != nil {
+                    Button("Show Meeting Transcript") {
+                        appState.showMeetingTranscriptWindow()
+                    }
+                    Button("Stop Meeting Transcript") {
+                        appState.stopMeetingTranscription()
+                    }
+                } else {
+                    Button("Start Meeting Transcript...") {
+                        appState.startMeetingTranscription(meetingName: "Meeting — \(DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short))")
+                    }
+                }
+            }
+
             Text("Ghost Pepper v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
                 .font(.caption)
                 .foregroundStyle(.tertiary)

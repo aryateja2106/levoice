@@ -186,7 +186,9 @@ private struct PepperChatWindowView: View {
                         }
                         ForEach(session.messages) { message in
                             if !(message.text.isEmpty && message.role == .assistant && session.isProcessing) {
-                                ChatBubble(message: message)
+                                ChatBubble(message: message, onActionResponded: { messageID in
+                                    session.markActionResponded(messageID: messageID)
+                                })
                                     .id(message.id)
                             }
                         }
@@ -338,6 +340,7 @@ private struct PepperChatWindowView: View {
 
 private struct ChatBubble: View {
     let message: PepperChatMessage
+    var onActionResponded: ((UUID) -> Void)?
 
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
@@ -372,6 +375,27 @@ private struct ChatBubble: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .bubbleBackground(role: message.role)
+            }
+
+            // Action buttons (e.g., meeting transcription prompt)
+            if let action = message.action, !action.responded {
+                HStack(spacing: 8) {
+                    Button(action.acceptLabel) {
+                        action.onAccept()
+                        onActionResponded?(message.id)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .controlSize(.small)
+
+                    Button(action.declineLabel) {
+                        action.onDecline?()
+                        onActionResponded?(message.id)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)

@@ -23,6 +23,14 @@ final class AudioRecorder {
         engine.prepare()
     }
 
+    /// Reset the audio engine to pick up a new default input device.
+    /// Call this after changing the system default input device in Settings.
+    func resetForDeviceChange() {
+        engine.stop()
+        engine.reset()
+        prewarm()
+    }
+
     static func serializeAudioBuffer(_ samples: [Float]) throws -> Data {
         samples.withUnsafeBufferPointer { buffer in
             Data(buffer: buffer)

@@ -109,7 +109,7 @@ final class ModelManager: ObservableObject {
         }
     }
 
-    func transcribe(audioBuffer: [Float]) async -> String? {
+    func transcribe(audioBuffer: [Float], language: String? = nil) async -> String? {
         guard !audioBuffer.isEmpty else { return nil }
         guard let model = SpeechModelCatalog.model(named: modelName) else { return nil }
 
@@ -117,7 +117,12 @@ final class ModelManager: ObservableObject {
             switch model.backend {
             case .whisperKit:
                 guard let whisperKit else { return nil }
-                let results: [TranscriptionResult] = try await whisperKit.transcribe(audioArray: audioBuffer)
+                let decodeOptions: DecodingOptions? = language.flatMap { lang in
+                    var opts = DecodingOptions()
+                    opts.language = lang
+                    return opts
+                }
+                let results: [TranscriptionResult] = try await whisperKit.transcribe(audioArray: audioBuffer, decodeOptions: decodeOptions)
                 let text = results
                     .map(\.text)
                     .joined(separator: " ")
@@ -299,6 +304,23 @@ final class ModelManager: ObservableObject {
         }
 
         return false
+    }
+
+    static func deleteCachedModel(_ model: SpeechModelDescriptor) {
+        switch model.backend {
+        case .whisperKit:
+            let modelPath = model.cachePathComponents.reduce(whisperModelsRootDirectory) { partialURL, component in
+                partialURL.appendingPathComponent(component, isDirectory: true)
+            }
+            try? FileManager.default.removeItem(at: modelPath)
+        case .fluidAudio:
+            guard let fluidAudioVariant = model.fluidAudioVariant else { return }
+            switch fluidAudioVariant {
+            case .parakeetV3:
+                let cacheDir = AsrModels.defaultCacheDirectory(for: .v3)
+                try? FileManager.default.removeItem(at: cacheDir)
+            }
+        }
     }
 
     private static func modelIsCached(_ model: SpeechModelDescriptor) -> Bool {

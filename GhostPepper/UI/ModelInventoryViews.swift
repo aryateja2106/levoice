@@ -2,11 +2,12 @@ import SwiftUI
 
 struct ModelInventoryCard: View {
     let rows: [RuntimeModelRow]
+    var onDelete: ((RuntimeModelRow) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(rows) { row in
-                ModelInventoryRow(row: row)
+                ModelInventoryRow(row: row, onDelete: canDelete(row) ? { onDelete?(row) } : nil)
             }
         }
         .padding(10)
@@ -15,10 +16,16 @@ struct ModelInventoryCard: View {
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
     }
+
+    private func canDelete(_ row: RuntimeModelRow) -> Bool {
+        guard onDelete != nil else { return false }
+        return row.status == .loaded && !row.isSelected
+    }
 }
 
 private struct ModelInventoryRow: View {
     let row: RuntimeModelRow
+    var onDelete: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -47,6 +54,16 @@ private struct ModelInventoryRow: View {
             Text(row.sizeDescription)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove downloaded model to free disk space")
+            }
         }
     }
 

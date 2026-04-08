@@ -6,11 +6,21 @@ struct PepperChatMessage: Identifiable {
     var text: String
     let timestamp: Date
     var screenContext: String?
+    var action: PepperChatAction?
 
     enum Role {
         case user
         case assistant
     }
+}
+
+/// An actionable prompt with buttons (e.g., meeting transcription offer).
+struct PepperChatAction {
+    let acceptLabel: String
+    let declineLabel: String
+    let onAccept: () -> Void
+    let onDecline: (() -> Void)?
+    var responded: Bool = false
 }
 
 @MainActor
@@ -25,6 +35,7 @@ final class PepperChatSession: ObservableObject {
     private let transcriber: SpeechTranscriber
     private let ocrService: FrontmostWindowOCRService
     private var backendProvider: () -> PepperChatBackend?
+    private var cleanupProvider: ((String) async -> String)?
     var debugLogger: ((DebugLogCategory, String) -> Void)?
 
     init(
@@ -35,6 +46,10 @@ final class PepperChatSession: ObservableObject {
         self.transcriber = transcriber
         self.ocrService = ocrService
         self.backendProvider = backendProvider
+    }
+
+    func updateCleanupProvider(_ provider: @escaping (String) async -> String) {
+        self.cleanupProvider = provider
     }
 
     func updateBackendProvider(_ provider: @escaping () -> PepperChatBackend?) {
@@ -50,12 +65,21 @@ final class PepperChatSession: ObservableObject {
         }
 
         isTranscribing = true
-        let transcription = await transcriber.transcribe(audioBuffer: audioBuffer)
+        let rawTranscription = await transcriber.transcribe(audioBuffer: audioBuffer)
         isTranscribing = false
 
-        guard let transcription, !transcription.isEmpty else {
+        guard let rawTranscription, !rawTranscription.isEmpty else {
             debugLogger?(.model, "Pepper Chat: no transcription detected.")
             return
+        }
+
+        // Run cleanup (same as voice-to-text paste) to fix misheard words
+        let transcription: String
+        if let cleanupProvider {
+            transcription = await cleanupProvider(rawTranscription)
+            debugLogger?(.model, "Pepper Chat: cleaned \"\(rawTranscription)\" → \"\(transcription)\"")
+        } else {
+            transcription = rawTranscription
         }
 
         // Show transcription in input field briefly, then auto-send
@@ -134,5 +158,38 @@ final class PepperChatSession: ObservableObject {
 
     func clearHistory() {
         messages.removeAll()
+    }
+
+    /// Mark an action message as responded (hides the buttons).
+    func markActionResponded(messageID: UUID) {
+        if let index = messages.firstIndex(where: { $0.id == messageID }) {
+            messages[index].action?.responded = true
+        }
+    }
+
+    /// Show a transcription prompt with accept/decline buttons.
+    func showMeetingPrompt(meeting: DetectedMeeting, onAccept: @escaping () -> Void) {
+        let action = PepperChatAction(
+            acceptLabel: "Yes, transcribe",
+            declineLabel: "No thanks",
+            onAccept: onAccept,
+            onDecline: nil
+        )
+
+        let promptText: String
+        switch meeting.appName {
+        case "YouTube", "Vimeo", "Twitch", "Loom", "Netflix", "Dailymotion":
+            promptText = "I see you're watching something on **\(meeting.appName)**. Want me to transcribe it?"
+        default:
+            promptText = "Looks like you're on a **\(meeting.appName)** call. Want me to transcribe it?"
+        }
+
+        let message = PepperChatMessage(
+            role: .assistant,
+            text: promptText,
+            timestamp: Date(),
+            action: action
+        )
+        messages.append(message)
     }
 }

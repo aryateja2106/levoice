@@ -33,6 +33,8 @@ enum OverlayMessage: Equatable {
         switch self {
         case .clipboardFallback:
             return "⌘V to paste"
+        case .noSoundDetected:
+            return "Check your mic in Settings → Recording"
         case .learnedCorrection(let replacement):
             return "\(replacement.wrong) -> \(replacement.right)"
         default:
@@ -46,6 +48,7 @@ class RecordingOverlayController {
     private var hostingView: NSHostingView<OverlayPillView>?
     private var dismissWorkItem: DispatchWorkItem?
     private var currentMessage: OverlayMessage?
+    var onNoSoundSettingsTapped: (() -> Void)?
 
     func show(message: OverlayMessage = .recording) {
         dismissWorkItem?.cancel()
@@ -53,8 +56,9 @@ class RecordingOverlayController {
 
         if let hostingView = hostingView, let panel = panel {
             let size = panelSize(for: message)
-            hostingView.rootView = OverlayPillView(message: message)
+            hostingView.rootView = OverlayPillView(message: message, onTap: message == .noSoundDetected ? { [weak self] in self?.onNoSoundSettingsTapped?() } : nil)
             panel.setContentSize(size)
+            panel.ignoresMouseEvents = message != .noSoundDetected
             panel.contentViewController?.view.frame = NSRect(origin: .zero, size: size)
             hostingView.frame = NSRect(origin: .zero, size: size)
             position(panel: panel)
@@ -75,11 +79,11 @@ class RecordingOverlayController {
         panel.backgroundColor = .clear
         panel.level = .floating
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = message != .noSoundDetected
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let container = NSView(frame: NSRect(origin: .zero, size: size))
-        let hosting = NSHostingView(rootView: OverlayPillView(message: message))
+        let hosting = NSHostingView(rootView: OverlayPillView(message: message, onTap: message == .noSoundDetected ? { [weak self] in self?.onNoSoundSettingsTapped?() } : nil))
         hosting.sizingOptions = []
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
@@ -124,7 +128,7 @@ class RecordingOverlayController {
 
     private func panelSize(for message: OverlayMessage) -> NSSize {
         switch message {
-        case .clipboardFallback, .learnedCorrection:
+        case .clipboardFallback, .learnedCorrection, .noSoundDetected:
             return NSSize(width: 420, height: 84)
         default:
             return NSSize(width: 300, height: 60)
@@ -134,11 +138,12 @@ class RecordingOverlayController {
     private func scheduleDismissIfNeeded(for message: OverlayMessage) {
         switch message {
         case .clipboardFallback, .learnedCorrection, .noSoundDetected:
+            let delay: TimeInterval = message == .noSoundDetected ? 5 : 3
             let workItem = DispatchWorkItem { [weak self] in
                 self?.dismiss()
             }
             dismissWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         default:
             return
         }
@@ -147,6 +152,7 @@ class RecordingOverlayController {
 
 struct OverlayPillView: View {
     let message: OverlayMessage
+    var onTap: (() -> Void)?
     @State private var isPulsing = false
 
     private var dotColor: Color {
@@ -202,5 +208,8 @@ struct OverlayPillView: View {
                 .fill(.black.opacity(0.85))
         )
         .onAppear { isPulsing = true }
+        .onTapGesture {
+            onTap?()
+        }
     }
 }
