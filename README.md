@@ -60,7 +60,7 @@ Speech models powered by [WhisperKit](https://github.com/argmaxinc/WhisperKit). 
 ## Good to know
 
 - **Launch at login** is enabled by default on first run. You can toggle it off in Settings.
-- **No logging to disk** — transcriptions are never written to files. Debug logs are in-memory only and disappear when the app quits.
+- **Everything stays local** — transcription history and recordings are stored on your Mac only. Nothing is sent to the cloud. You can clear history anytime in Settings.
 
 ## Acknowledgments
 
