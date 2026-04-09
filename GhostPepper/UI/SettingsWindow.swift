@@ -94,6 +94,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case models
     case transcriptionLab
     case pepperChat
+    case meetingTranscript
     case general
 
     var id: String { rawValue }
@@ -106,6 +107,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .models: "Models"
         case .transcriptionLab: "History"
         case .pepperChat: "Pepper Chat"
+        case .meetingTranscript: "Meeting Transcript"
         case .general: "General"
         }
     }
@@ -118,6 +120,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .models: "Speech and cleanup model downloads and runtime status."
         case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
         case .pepperChat: "Voice-to-AI assistant with streaming responses."
+        case .meetingTranscript: "Auto-detect calls and transcribe meetings locally."
         case .general: "Startup behavior and app-wide preferences."
         }
     }
@@ -130,6 +133,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .models: "brain"
         case .transcriptionLab: "waveform.badge.magnifyingglass"
         case .pepperChat: "bubble.right"
+        case .meetingTranscript: "waveform.badge.mic"
         case .general: "gearshape"
         }
     }
@@ -231,6 +235,7 @@ struct SettingsView: View {
 
     var body: some View {
         HSplitView {
+            ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(SettingsSection.allCases) { section in
                     Button {
@@ -271,6 +276,7 @@ struct SettingsView: View {
                 }
 
                 Spacer(minLength: 0)
+            }
             }
             .frame(minWidth: 250, idealWidth: 270, maxWidth: 270, maxHeight: .infinity, alignment: .topLeading)
             .padding(20)
@@ -326,6 +332,20 @@ struct SettingsView: View {
 
     private func refreshScreenRecordingPermission() {
         hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
+    }
+
+    private func offloadModel(_ row: RuntimeModelRow) {
+        if row.id.hasPrefix("cleanup-") {
+            // Cleanup model
+            if let kind = TextCleanupManager.cleanupModels.first(where: { "cleanup-\($0.fileName)" == row.id })?.kind {
+                appState.textCleanupManager.deleteCachedModel(kind: kind)
+            }
+        } else {
+            // Speech model
+            if let model = SpeechModelCatalog.model(named: row.id) {
+                ModelManager.deleteCachedModel(model)
+            }
+        }
     }
 
     private func refreshRequiredPermissions() {
@@ -421,6 +441,8 @@ struct SettingsView: View {
                 transcriptionLabSection
             case .pepperChat:
                 pepperChatSection
+            case .meetingTranscript:
+                meetingTranscriptSection
             case .general:
                 generalSection
             }
@@ -497,6 +519,7 @@ struct SettingsView: View {
                         .frame(maxWidth: 320, alignment: .leading)
                         .onChange(of: selectedDeviceID) { _, newValue in
                             _ = AudioDeviceManager.setDefaultInputDevice(newValue)
+                            appState.resetAudioEngine()
                         }
                     }
 
@@ -720,6 +743,38 @@ struct SettingsView: View {
                 Text("Ghost Pepper uses this model for speech recognition everywhere in the app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                SettingsField("Language") {
+                    Picker("Language", selection: $appState.preferredLanguage) {
+                        Text("Auto-detect").tag("auto")
+                        Text("English").tag("en")
+                        Text("Spanish").tag("es")
+                        Text("French").tag("fr")
+                        Text("German").tag("de")
+                        Text("Portuguese").tag("pt")
+                        Text("Italian").tag("it")
+                        Text("Dutch").tag("nl")
+                        Text("Chinese").tag("zh")
+                        Text("Japanese").tag("ja")
+                        Text("Korean").tag("ko")
+                        Text("Russian").tag("ru")
+                        Text("Arabic").tag("ar")
+                        Text("Hindi").tag("hi")
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 320, alignment: .leading)
+                }
+
+                if appState.preferredLanguage != "auto" && appState.preferredLanguage != "en" && appState.speechModel.hasSuffix(".en") {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Text("You've selected a non-English language but are using an English-only model. Switch to **Multilingual** or **Parakeet v3** above for best results.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             SettingsCard("Cleanup model") {
@@ -752,14 +807,13 @@ struct SettingsView: View {
 
             SettingsCard("Runtime models") {
                 VStack(alignment: .leading, spacing: 16) {
-                    ModelInventoryCard(rows: modelRows)
+                    ModelInventoryCard(rows: modelRows, onDelete: offloadModel)
 
                     if let activeDownloadText = RuntimeModelInventory.activeDownloadText(rows: modelRows) {
                         Text(activeDownloadText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-
                 }
             }
         }
@@ -800,16 +854,28 @@ struct SettingsView: View {
                 Text("This permanently removes all saved recordings and transcriptions.")
             }
 
-            if transcriptionLabController.entries.isEmpty {
-                ContentUnavailableView(
-                    "No Saved Recordings",
-                    systemImage: "waveform",
-                    description: Text("Make a few dictations in Ghost Pepper and they will appear here.")
-                )
-                .frame(maxWidth: .infinity, minHeight: 280)
+            TextField("Search transcriptions", text: $transcriptionLabController.searchText)
+                .textFieldStyle(.roundedBorder)
+
+            if transcriptionLabController.filteredEntries.isEmpty {
+                if transcriptionLabController.searchText.isEmpty {
+                    ContentUnavailableView(
+                        "No Saved Recordings",
+                        systemImage: "waveform",
+                        description: Text("Make a few dictations in Ghost Pepper and they will appear here.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                } else {
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "magnifyingglass",
+                        description: Text("No transcriptions match \"\(transcriptionLabController.searchText)\".")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(transcriptionLabController.entries) { entry in
+                    ForEach(transcriptionLabController.filteredEntries) { entry in
                         HStack(alignment: .top, spacing: 8) {
                             Button {
                                 transcriptionLabController.selectEntry(entry.id)
@@ -1144,6 +1210,128 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
                                 .lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @State private var meetingDirectoryBookmark: URL? = {
+        MeetingTranscriptSettings.loadSaveDirectory()
+    }()
+
+    private var meetingTranscriptSection: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 8) {
+                Image(systemName: "flask")
+                    .foregroundColor(.orange)
+                Text("Experimental")
+                    .font(.caption.bold())
+                    .foregroundColor(.orange)
+            }
+            .padding(.horizontal, 4)
+
+            SettingsCard("Meeting Transcription") {
+                VStack(alignment: .leading, spacing: 18) {
+                    Toggle(
+                        "Enable meeting transcription",
+                        isOn: $appState.meetingTranscriptEnabled
+                    )
+                    .onChange(of: appState.meetingTranscriptEnabled) { _, _ in
+                        appState.setupMeetingDetector()
+                    }
+
+                    Text("When enabled, Ghost Pepper can detect video calls and offer to transcribe them locally. Requires Screen Recording permission for system audio capture.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if appState.meetingTranscriptEnabled {
+                        Toggle(
+                            "Auto-detect meeting apps",
+                            isOn: $appState.meetingAutoDetectEnabled
+                        )
+                        .onChange(of: appState.meetingAutoDetectEnabled) { _, _ in
+                            appState.setupMeetingDetector()
+                        }
+
+                        Text("Monitors for Zoom, Teams, FaceTime, Meet, and other call apps. When detected, the pepper character will ask if you'd like to transcribe.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if appState.meetingTranscriptEnabled {
+                SettingsCard("Transcript Storage") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Save directory:")
+                                .font(.body)
+
+                            Text(meetingDirectoryBookmark?.path ?? MeetingTranscriptSettings.defaultSaveDirectory().path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer()
+
+                            Button("Choose...") {
+                                let panel = NSOpenPanel()
+                                panel.canChooseFiles = false
+                                panel.canChooseDirectories = true
+                                panel.allowsMultipleSelection = false
+                                panel.canCreateDirectories = true
+                                panel.message = "Choose where to save meeting transcripts"
+                                panel.prompt = "Select Folder"
+
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    MeetingTranscriptSettings.saveSaveDirectory(url)
+                                    meetingDirectoryBookmark = url
+                                }
+                            }
+                        }
+
+                        Text("Transcripts are saved as Markdown files organized in date folders (e.g., 2026-04-07/standup.md).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                SettingsCard("Summary Prompt") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("This prompt is used to generate a summary after a meeting ends. The transcript is sent to your local cleanup model.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextEditor(text: $appState.meetingSummaryPrompt)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(height: 100)
+                            .padding(4)
+                            .background(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
+
+                        HStack {
+                            Button("Reset to Default") {
+                                appState.meetingSummaryPrompt = MeetingSummaryGenerator.finalSummaryPrompt
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+
+                if !PermissionChecker.hasScreenRecordingPermission() {
+                    SettingsCard("Permissions") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Screen Recording permission is required to capture system audio (what other call participants say).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Button("Grant Screen Recording Permission") {
+                                PermissionChecker.requestScreenRecordingPermission()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
                         }
                     }
                 }

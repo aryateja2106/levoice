@@ -233,6 +233,12 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
         modelsDirectory.appendingPathComponent(fileName)
     }
 
+    func deleteCachedModel(kind: LocalCleanupModelKind) {
+        let desc = descriptor(for: kind)
+        let path = modelPath(for: desc.fileName)
+        try? FileManager.default.removeItem(at: path)
+    }
+
     func clean(text: String, prompt: String? = nil, modelKind: LocalCleanupModelKind? = nil) async throws -> String {
         let requestedModelKind = modelKind ?? selectedCleanupModelKind
         await loadModel(kind: requestedModelKind)

@@ -156,7 +156,7 @@ final class TextPaster {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        guard canPasteIntoFocusedElement(), let postCommandV = prepareCommandV() else {
+        guard canPasteIntoFocusedElement() || Self.frontmostAppHasPasteMenuItem(), let postCommandV = prepareCommandV() else {
             onPasteEnd?()
             return .copiedToClipboard
         }
@@ -374,6 +374,54 @@ final class TextPaster {
 
             return unsafeBitCast(value, to: AXUIElement.self)
         }
+    }
+
+    // MARK: - Menu Bar Inspection
+
+    /// Duck-typing check: returns true if the frontmost app has an enabled Paste
+    /// menu item (Cmd+V). Apps that expose this command support pasting even when
+    /// their editor doesn't advertise standard AX text-editing attributes.
+    static func frontmostAppHasPasteMenuItem() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+
+        guard let menuBar = axElementAttribute(kAXMenuBarAttribute as CFString, on: appElement) else {
+            return false
+        }
+
+        let menuBarItems = children(of: menuBar)
+        for menuBarItem in menuBarItems {
+            let submenus = children(of: menuBarItem)
+            for submenu in submenus {
+                let menuItems = children(of: submenu)
+                for menuItem in menuItems {
+                    if isPasteMenuItem(menuItem) {
+                        return boolAttribute(kAXEnabledAttribute as CFString, on: menuItem) ?? true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    private static func isPasteMenuItem(_ element: AXUIElement) -> Bool {
+        var cmdCharRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXMenuItemCmdChar" as CFString, &cmdCharRef) == .success,
+              let cmdChar = cmdCharRef as? String,
+              cmdChar.lowercased() == "v" else {
+            return false
+        }
+
+        // AXMenuItemCmdModifiers: 0 = Command only (no Shift/Option/Control)
+        var modRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXMenuItemCmdModifiers" as CFString, &modRef) == .success,
+           let modifiers = modRef as? Int,
+           modifiers != 0 {
+            return false
+        }
+
+        return true
     }
 
     // MARK: - Key Simulation

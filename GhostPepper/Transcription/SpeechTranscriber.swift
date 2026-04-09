@@ -43,7 +43,7 @@ final class SpeechTranscriber {
     /// - Parameter audioBuffer: Array of Float samples at 16 kHz sample rate, mono.
     /// - Returns: The transcribed text, or nil if the buffer is empty,
     ///   the model is not ready, or transcription produced no output.
-    func transcribe(audioBuffer: [Float]) async -> String? {
+    func transcribe(audioBuffer: [Float], language: String? = nil) async -> String? {
         guard !audioBuffer.isEmpty else { return nil }
 
         // Serialize concurrent transcription requests
@@ -52,7 +52,7 @@ final class SpeechTranscriber {
                 semaphore.wait()
                 let task = Task {
                     defer { semaphore.signal() }
-                    return await self.modelManager.transcribe(audioBuffer: audioBuffer)
+                    return await self.modelManager.transcribe(audioBuffer: audioBuffer, language: language)
                 }
                 let result = Task {
                     await task.value

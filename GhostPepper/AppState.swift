@@ -64,9 +64,13 @@ class AppState: ObservableObject {
     @AppStorage("cleanupEnabled") var cleanupEnabled: Bool = true
     @AppStorage("cleanupPrompt") var cleanupPrompt: String = TextCleaner.defaultPrompt
     @AppStorage("speechModel") var speechModel: String = SpeechModelCatalog.defaultModelID
+    @AppStorage("preferredLanguage") var preferredLanguage: String = "auto"
     @AppStorage("pepperChatHost") var pepperChatHost: String = "https://api.zo.computer"
     @AppStorage("pepperChatApiKey") var pepperChatApiKey: String = ""
     @AppStorage("pepperChatIncludeScreenContext") var pepperChatIncludeScreenContext: Bool = true
+    @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
+    @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
+    @AppStorage("meetingSummaryPrompt") var meetingSummaryPrompt: String = MeetingSummaryGenerator.defaultPrompt
     @Published private(set) var pushToTalkChord: KeyChord
     @Published private(set) var toggleToTalkChord: KeyChord
     @Published private(set) var pepperChatChord: KeyChord
@@ -139,7 +143,7 @@ class AppState: ObservableObject {
     private static let postPasteLearningEnabledDefaultsKey = "postPasteLearningEnabled"
     private static let ignoreOtherSpeakersDefaultsKey = "ignoreOtherSpeakers"
     private static let playSoundsDefaultsKey = "playSounds"
-    private static let emptyTranscriptionCancelThresholdSampleCount = 80_000
+    private static let emptyTranscriptionCancelThresholdSampleCount = 8_000 // ~0.5 seconds — show "no sound" hint for almost all failed recordings
     private static let speechModelErrorPrefix = "Failed to load speech model: "
 
     nonisolated static let defaultPushToTalkChord = KeyChord(keys: Set([
@@ -344,6 +348,11 @@ class AppState: ObservableObject {
             }
         }
 
+        // Wire up "no sound" overlay to open settings
+        overlay.onNoSoundSettingsTapped = { [weak self] in
+            self?.showSettings()
+        }
+
         // Pre-warm audio engine so first recording starts faster
         audioRecorder.prewarm()
         FocusedElementLocator.startPasteTargetTracking()
@@ -368,6 +377,9 @@ class AppState: ObservableObject {
         await startHotkeyMonitor()
 
         await refreshCleanupModelState()
+
+        // Start meeting detection if enabled
+        setupMeetingDetector()
     }
 
     func relaunchApp() {
@@ -587,7 +599,7 @@ class AppState: ObservableObject {
                 debugLogStore.record(category: .model, message: "Empty transcription cancelled after a short recording.")
             case .showNoSoundDetected:
                 overlay.show(message: .noSoundDetected)
-                debugLogStore.record(category: .model, message: "No sound detected for a long recording.")
+                debugLogStore.record(category: .model, message: "No sound detected. Check mic in Settings → Recording.")
             }
             completeActivePerformanceTraceIfNeeded()
         }
@@ -721,7 +733,8 @@ class AppState: ObservableObject {
             return transcribeAudioBufferOverride(audioBuffer)
         }
 
-        return await transcriber.transcribe(audioBuffer: audioBuffer)
+        let language = preferredLanguage == "auto" ? nil : preferredLanguage
+        return await transcriber.transcribe(audioBuffer: audioBuffer, language: language)
     }
 
     func cleanedTranscription(_ text: String) async -> String {
@@ -741,14 +754,44 @@ class AppState: ObservableObject {
     private let cleanupTranscriptWindowController = CleanupTranscriptWindowController()
     private let debugLogWindowController = DebugLogWindowController()
     private let pepperChatWindowController = PepperChatWindowController()
+    private lazy var meetingTranscriptWindowController: MeetingTranscriptWindowController = {
+        let controller = MeetingTranscriptWindowController()
+        controller.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        controller.onStartRecording = { [weak self] name -> MeetingSession? in
+            self?.createMeetingSession(name: name)
+        }
+        controller.onStopRecording = { [weak self] session in
+            Task {
+                await session.stop()
+                self?.debugLogStore.record(category: .model, message: "Meeting stopped: \(session.transcript.meetingName)")
+            }
+        }
+        controller.onGenerateSummary = { [weak self] transcript in
+            Task { await self?.generateMeetingSummary(for: transcript) }
+        }
+        return controller
+    }()
+    private let meetingDetector = MeetingDetector()
+    @Published var activeMeetingSession: MeetingSession?
     private(set) lazy var pepperChatSession: PepperChatSession = {
         let session = PepperChatSession(transcriber: transcriber)
         session.debugLogger = debugLogStore.record
         session.updateBackendProvider { [weak self] in
             self?.makePepperChatBackend()
         }
+        session.updateCleanupProvider { [weak self] text in
+            guard let self else { return text }
+            return await self.cleanedTranscription(text)
+        }
         return session
     }()
+
+    func resetAudioEngine() {
+        audioRecorder.resetForDeviceChange()
+        debugLogStore.record(category: .model, message: "Audio engine reset for device change.")
+    }
 
     func showSettings() {
         settingsController.show(appState: self)
@@ -806,6 +849,90 @@ class AppState: ObservableObject {
         return ZoBackend(host: host, apiKey: pepperChatApiKey)
     }
 
+    // MARK: - Meeting Transcript
+
+    /// Creates a new MeetingSession, starts recording, and returns it.
+    /// Called by the window state when the user clicks "+" or auto-detection triggers.
+    func createMeetingSession(name: String) -> MeetingSession? {
+        guard PermissionChecker.hasScreenRecordingPermission() else {
+            PermissionChecker.requestScreenRecordingPermission()
+            return nil
+        }
+
+        let saveDir = MeetingTranscriptSettings.effectiveSaveDirectory()
+        let session = MeetingSession(
+            meetingName: name,
+            transcriber: transcriber,
+            saveDirectory: saveDir
+        )
+        activeMeetingSession = session
+
+        Task {
+            do {
+                try await session.start()
+                debugLogStore.record(category: .model, message: "Meeting transcription started: \(name)")
+            } catch {
+                debugLogStore.record(category: .model, message: "Meeting transcription failed to start: \(error.localizedDescription)")
+                activeMeetingSession = nil
+            }
+        }
+
+        return session
+    }
+
+    func startMeetingTranscription(meetingName: String) {
+        guard let session = createMeetingSession(name: meetingName) else { return }
+        meetingTranscriptWindowController.show(session: session)
+    }
+
+    func showMeetingTranscriptWindow() {
+        meetingTranscriptWindowController.show()
+    }
+
+    func showOrCreateMeetingWindow() {
+        meetingTranscriptWindowController.show()
+    }
+
+    func generateMeetingSummary(for transcript: MeetingTranscript) async {
+        guard !transcript.segments.isEmpty else { return }
+        transcript.isGeneratingSummary = true
+        let generator = MeetingSummaryGenerator(cleanupManager: textCleanupManager)
+        let result = await generator.generateSummary(
+            transcript: transcript,
+            chunkPrompt: MeetingSummaryGenerator.defaultPrompt,
+            finalPrompt: meetingSummaryPrompt
+        )
+        transcript.summary = result
+        transcript.isGeneratingSummary = false
+        debugLogStore.record(category: .model, message: "Meeting summary \(result != nil ? "generated" : "failed") for \(transcript.meetingName)")
+    }
+
+    func stopMeetingTranscription() {
+        guard let session = activeMeetingSession else { return }
+        Task {
+            await session.stop()
+            debugLogStore.record(category: .model, message: "Meeting transcription stopped: \(session.transcript.meetingName)")
+            activeMeetingSession = nil
+        }
+    }
+
+    func setupMeetingDetector() {
+        guard meetingTranscriptEnabled, meetingAutoDetectEnabled else {
+            meetingDetector.stop()
+            return
+        }
+
+        meetingDetector.onMeetingDetected = { [weak self] meeting in
+            guard let self = self, self.activeMeetingSession == nil else { return }
+            self.pepperChatSession.showMeetingPrompt(meeting: meeting) { [weak self] in
+                self?.startMeetingTranscription(meetingName: meeting.suggestedName)
+            }
+            self.pepperChatWindowController.show(session: self.pepperChatSession)
+        }
+
+        meetingDetector.start()
+    }
+
     private var shortcutBindings: [ChordAction: KeyChord] {
         [
             .pushToTalk: pushToTalkChord,
@@ -840,11 +967,19 @@ class AppState: ObservableObject {
             return (text: text, prompt: cleanupPrompt, attemptedCleanup: false, cleanupUsedFallback: false)
         }
 
+        let languageAwarePrompt: String
+        if preferredLanguage != "auto" && preferredLanguage != "en" {
+            let langName = Locale.current.localizedString(forLanguageCode: preferredLanguage) ?? preferredLanguage
+            languageAwarePrompt = cleanupPrompt + "\n\nThe transcription is in \(langName). Preserve the original language — do not translate to English."
+        } else {
+            languageAwarePrompt = cleanupPrompt
+        }
+
         let activeCleanupPrompt: String
         if canAttemptCleanup {
             let promptBuildStart = Date()
             activeCleanupPrompt = cleanupPromptBuilder.buildPrompt(
-                basePrompt: cleanupPrompt,
+                basePrompt: languageAwarePrompt,
                 windowContext: windowContext,
                 preferredTranscriptions: correctionStore.preferredTranscriptions,
                 commonlyMisheard: correctionStore.commonlyMisheard,
@@ -852,7 +987,7 @@ class AppState: ObservableObject {
             )
             activePerformanceTrace?.promptBuildDuration = Date().timeIntervalSince(promptBuildStart)
         } else {
-            activeCleanupPrompt = cleanupPrompt
+            activeCleanupPrompt = languageAwarePrompt
         }
 
         let cleanedResult = await textCleaner.cleanWithPerformance(
@@ -1109,6 +1244,10 @@ class AppState: ObservableObject {
     func prepareForTermination() {
         recordingOCRPrefetch.cancel()
         textCleanupManager.shutdownBackend()
+        meetingDetector.stop()
+        if let session = activeMeetingSession {
+            Task { await session.stop() }
+        }
     }
 
     func acquirePipeline(for owner: PipelineOwner) -> Bool {
