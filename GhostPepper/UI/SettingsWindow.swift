@@ -334,6 +334,18 @@ struct SettingsView: View {
         hasScreenRecordingPermission = PermissionChecker.hasScreenRecordingPermission()
     }
 
+    private func downloadModel(_ row: RuntimeModelRow) {
+        if row.id.hasPrefix("cleanup-") {
+            if let kind = TextCleanupManager.cleanupModels.first(where: { "cleanup-\($0.fileName)" == row.id })?.kind {
+                Task { await appState.textCleanupManager.loadModel(kind: kind) }
+            }
+        } else {
+            // Select and load the requested model (triggers download if not cached)
+            appState.speechModel = row.id
+            Task { await appState.loadSpeechModel(name: row.id) }
+        }
+    }
+
     private func offloadModel(_ row: RuntimeModelRow) {
         if row.id.hasPrefix("cleanup-") {
             // Cleanup model
@@ -807,7 +819,7 @@ struct SettingsView: View {
 
             SettingsCard("Runtime models") {
                 VStack(alignment: .leading, spacing: 16) {
-                    ModelInventoryCard(rows: modelRows, onDelete: offloadModel)
+                    ModelInventoryCard(rows: modelRows, onDelete: offloadModel, onDownload: downloadModel)
 
                     if let activeDownloadText = RuntimeModelInventory.activeDownloadText(rows: modelRows) {
                         Text(activeDownloadText)

@@ -3,11 +3,16 @@ import SwiftUI
 struct ModelInventoryCard: View {
     let rows: [RuntimeModelRow]
     var onDelete: ((RuntimeModelRow) -> Void)?
+    var onDownload: ((RuntimeModelRow) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(rows) { row in
-                ModelInventoryRow(row: row, onDelete: canDelete(row) ? { onDelete?(row) } : nil)
+                ModelInventoryRow(
+                    row: row,
+                    onDelete: canDelete(row) ? { onDelete?(row) } : nil,
+                    onDownload: canDownload(row) ? { onDownload?(row) } : nil
+                )
             }
         }
         .padding(10)
@@ -21,21 +26,36 @@ struct ModelInventoryCard: View {
         guard onDelete != nil else { return false }
         return row.status == .loaded && !row.isSelected
     }
+
+    private func canDownload(_ row: RuntimeModelRow) -> Bool {
+        guard onDownload != nil else { return false }
+        return row.status == .notLoaded
+    }
 }
 
 private struct ModelInventoryRow: View {
     let row: RuntimeModelRow
     var onDelete: (() -> Void)?
+    var onDownload: (() -> Void)?
+    @State private var isDeleting = false
 
     var body: some View {
         HStack(spacing: 8) {
-            ModelInventoryStatusIndicator(status: row.status)
+            if let onDownload, row.status == .notLoaded, !isDeleting {
+                Button(action: onDownload) {
+                    ModelInventoryStatusIndicator(status: .notLoaded)
+                }
+                .buttonStyle(.borderless)
+                .help("Download model")
+            } else {
+                ModelInventoryStatusIndicator(status: isDeleting ? .loading : row.status)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(row.name)
                         .font(.callout)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isDeleting ? .secondary : .primary)
 
                     if row.isSelected {
                         Text("Selected")
@@ -44,7 +64,7 @@ private struct ModelInventoryRow: View {
                     }
                 }
 
-                Text(statusText)
+                Text(isDeleting ? "Removing..." : statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -56,13 +76,28 @@ private struct ModelInventoryRow: View {
                 .foregroundStyle(.tertiary)
 
             if let onDelete {
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if isDeleting {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Button(action: {
+                        isDeleting = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            onDelete()
+                            // Small delay so "Removing..." is visible before status changes
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                isDeleting = false
+                            }
+                        }
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Remove downloaded model to free disk space")
                 }
-                .buttonStyle(.borderless)
-                .help("Remove downloaded model to free disk space")
             }
         }
     }
@@ -96,8 +131,8 @@ private struct ModelInventoryStatusIndicator: View {
                 ProgressView()
                     .controlSize(.mini)
             case .notLoaded:
-                Image(systemName: "circle")
-                    .foregroundStyle(.quaternary)
+                Image(systemName: "icloud.and.arrow.down")
+                    .foregroundStyle(.secondary)
             case .downloading(let progress):
                 PieProgressIndicator(progress: progress)
             }

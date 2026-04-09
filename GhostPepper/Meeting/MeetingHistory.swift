@@ -43,9 +43,10 @@ enum MeetingHistory {
                 }
 
             let entries = mdFiles.map { file in
-                let name = file.deletingPathExtension().lastPathComponent
-                    .replacingOccurrences(of: "-", with: " ")
-                    .capitalized
+                let name = MeetingHistory.readTitle(from: file)
+                    ?? file.deletingPathExtension().lastPathComponent
+                        .replacingOccurrences(of: "-", with: " ")
+                        .capitalized
                 return MeetingHistoryEntry(
                     id: file,
                     name: name,
@@ -60,5 +61,17 @@ enum MeetingHistory {
         }
 
         return groups
+    }
+
+    /// Read the `# Title` line from a markdown file without parsing the whole thing.
+    private static func readTitle(from fileURL: URL) -> String? {
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
+        for line in content.components(separatedBy: .newlines) {
+            if line.hasPrefix("# ") {
+                let title = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                return title.isEmpty ? nil : title
+            }
+        }
+        return nil
     }
 }
