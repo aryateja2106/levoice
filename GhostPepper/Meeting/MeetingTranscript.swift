@@ -44,6 +44,7 @@ final class MeetingTranscript: ObservableObject {
     @Published var endDate: Date?
     @Published var notes: String
     @Published var segments: [TranscriptSegment]
+    @Published var attendees: [String]
 
     let sessionID: UUID
 
@@ -57,6 +58,7 @@ final class MeetingTranscript: ObservableObject {
         self.sessionID = sessionID
         self.notes = ""
         self.segments = []
+        self.attendees = []
     }
 
     func appendSegment(_ segment: TranscriptSegment) {

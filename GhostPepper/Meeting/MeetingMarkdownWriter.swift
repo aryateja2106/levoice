@@ -50,6 +50,9 @@ struct MeetingMarkdownWriter {
         } else {
             lines.append("**Date:** \(startStr) (in progress)")
         }
+        if !transcript.attendees.isEmpty {
+            lines.append("**Attendees:** \(transcript.attendees.joined(separator: ", "))")
+        }
         lines.append("")
 
         // Notes
@@ -78,6 +81,114 @@ struct MeetingMarkdownWriter {
         lines.append("")
 
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Parse markdown back into a transcript
+
+    /// Parse a meeting markdown file back into a MeetingTranscript for viewing/editing.
+    @MainActor
+    static func parse(from fileURL: URL) throws -> MeetingTranscript {
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        let lines = content.components(separatedBy: .newlines)
+
+        // Extract title from first "# " line
+        var title = fileURL.deletingPathExtension().lastPathComponent
+        var notes = ""
+        var inNotes = false
+        var inTranscript = false
+        var transcriptLines: [String] = []
+
+        for line in lines {
+            if line.hasPrefix("# ") && title == fileURL.deletingPathExtension().lastPathComponent {
+                title = String(line.dropFirst(2))
+                continue
+            }
+
+            if line == "## Notes" {
+                inNotes = true
+                inTranscript = false
+                continue
+            }
+            if line == "## Transcript" {
+                inNotes = false
+                inTranscript = true
+                continue
+            }
+            if line.hasPrefix("## ") {
+                inNotes = false
+                inTranscript = false
+                continue
+            }
+
+            if inNotes {
+                if line == "*No notes.*" { continue }
+                notes += (notes.isEmpty ? "" : "\n") + line
+            }
+            if inTranscript {
+                if line == "*No transcript yet.*" { continue }
+                if !line.isEmpty {
+                    transcriptLines.append(line)
+                }
+            }
+        }
+
+        let transcript = MeetingTranscript(meetingName: title)
+        transcript.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Parse transcript lines: **[00:00] Me:** text
+        for line in transcriptLines {
+            guard line.hasPrefix("**[") else { continue }
+            // Extract timestamp
+            guard let closeBracket = line.range(of: "]") else { continue }
+            let timestamp = String(line[line.index(line.startIndex, offsetBy: 3)..<closeBracket.lowerBound])
+            let parts = timestamp.split(separator: ":")
+            let seconds: TimeInterval
+            if parts.count == 3 {
+                let h = Double(parts[0]) ?? 0
+                let m = Double(parts[1]) ?? 0
+                let s = Double(parts[2]) ?? 0
+                seconds = h * 3600 + m * 60 + s
+            } else if parts.count == 2 {
+                let m = Double(parts[0]) ?? 0
+                let s = Double(parts[1]) ?? 0
+                seconds = m * 60 + s
+            } else {
+                seconds = 0
+            }
+
+            // Extract speaker and text: "Me:** text  " or "Others:** text  "
+            let afterBracket = String(line[closeBracket.upperBound...])
+            let speakerText = afterBracket.trimmingCharacters(in: .whitespaces)
+            guard speakerText.hasPrefix(" ") || speakerText.hasPrefix("") else { continue }
+            let cleaned = speakerText.hasPrefix(" ") ? String(speakerText.dropFirst()) : speakerText
+
+            let speaker: SpeakerLabel
+            let text: String
+            if cleaned.hasPrefix("Me:**") {
+                speaker = .me
+                text = String(cleaned.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            } else if cleaned.hasPrefix("Others:**") {
+                speaker = .remote(name: nil)
+                text = String(cleaned.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+            } else if let colonStar = cleaned.range(of: ":**") {
+                let name = String(cleaned[..<colonStar.lowerBound])
+                speaker = .remote(name: name)
+                text = String(cleaned[colonStar.upperBound...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                continue
+            }
+
+            let segment = TranscriptSegment(
+                id: UUID(),
+                speaker: speaker,
+                startTime: seconds,
+                endTime: seconds + 30,
+                text: text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "  $", with: "", options: .regularExpression)
+            )
+            transcript.segments.append(segment)
+        }
+
+        return transcript
     }
 
     // MARK: - Helpers

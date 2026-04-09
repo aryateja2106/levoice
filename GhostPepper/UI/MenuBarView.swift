@@ -23,16 +23,13 @@ struct MenuBarView: View {
             if appState.meetingTranscriptEnabled {
                 Divider()
 
+                Button("Meetings...") {
+                    appState.showOrCreateMeetingWindow()
+                }
+
                 if appState.activeMeetingSession != nil {
-                    Button("Show Meeting Transcript") {
-                        appState.showMeetingTranscriptWindow()
-                    }
-                    Button("Stop Meeting Transcript") {
+                    Button("Stop Meeting") {
                         appState.stopMeetingTranscription()
-                    }
-                } else {
-                    Button("Start Meeting Transcript...") {
-                        appState.startMeetingTranscription(meetingName: "Meeting — \(DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short))")
                     }
                 }
             }

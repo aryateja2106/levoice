@@ -1,32 +1,47 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Window Controller
 
+@MainActor
 final class MeetingTranscriptWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     var onOpenSettings: (() -> Void)?
+    var onStartRecording: ((_ name: String) -> MeetingSession?)?
+    var onStopRecording: ((MeetingSession) -> Void)?
 
-    func show(session: MeetingSession) {
+    private var windowState: MeetingWindowState?
+
+    func show(session: MeetingSession? = nil) {
         if let window = window {
+            // Add session as a tab if provided
+            if let session = session, let state = windowState {
+                state.addRecordingTab(session: session)
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let view = MeetingTranscriptView(session: session, onOpenSettings: onOpenSettings)
+        let state = MeetingWindowState()
+        state.onOpenSettings = onOpenSettings
+        state.onStartRecording = onStartRecording
+        state.onStopRecording = onStopRecording
+        windowState = state
+
+        if let session = session {
+            state.addRecordingTab(session: session)
+        }
+
+        let view = MeetingRootView(state: state)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 720, height: 900)
         let windowHeight = screenFrame.height
         let windowWidth: CGFloat = 720
 
         let window = NSWindow(
-            contentRect: NSRect(
-                x: screenFrame.midX - windowWidth / 2,
-                y: screenFrame.minY,
-                width: windowWidth,
-                height: windowHeight
-            ),
+            contentRect: NSRect(x: screenFrame.midX - windowWidth / 2, y: screenFrame.minY, width: windowWidth, height: windowHeight),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -42,21 +57,17 @@ final class MeetingTranscriptWindowController: NSObject, NSWindowDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.hidesOnDeactivate = false
         NSApp.setActivationPolicy(.regular)
-        window.setFrame(NSRect(
-            x: screenFrame.midX - windowWidth / 2,
-            y: screenFrame.minY,
-            width: windowWidth,
-            height: windowHeight
-        ), display: true)
+        window.setFrame(NSRect(x: screenFrame.midX - windowWidth / 2, y: screenFrame.minY, width: windowWidth, height: windowHeight), display: true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
         self.window = window
     }
 
     func close() {
-        window?.orderOut(nil)
-        window = nil
+        guard let window = window else { return }
+        window.orderOut(nil)
+        self.window = nil
+        windowState = nil
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -67,174 +78,278 @@ final class MeetingTranscriptWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-// MARK: - Tab Enum
+// MARK: - Tab Model
 
-enum MeetingTab: String, CaseIterable {
-    case notes
-    case transcript
-    case summary
+@MainActor
+final class OpenMeetingTab: ObservableObject, Identifiable {
+    let id = UUID()
+    @Published var transcript: MeetingTranscript
+    @Published var fileURL: URL?
+    @Published var isRecording = false
+    var session: MeetingSession? // nil = loaded from disk
+    private var sessionObserver: Any?
 
-    var label: String {
-        switch self {
-        case .notes: "📝 Notes"
-        case .transcript: "📜 Transcript"
-        case .summary: "✨ Summary"
+    private var fileURLObserver: Any?
+
+    init(transcript: MeetingTranscript, fileURL: URL? = nil, session: MeetingSession? = nil) {
+        self.transcript = transcript
+        self.fileURL = fileURL
+        self.session = session
+        if let session = session {
+            isRecording = session.isActive
+            sessionObserver = session.$isActive.sink { [weak self] active in
+                self?.isRecording = active
+            }
+            // Sync fileURL from session when it gets created
+            fileURLObserver = session.$fileURL.sink { [weak self] url in
+                if let url = url {
+                    self?.fileURL = url
+                }
+            }
         }
     }
 }
 
-// MARK: - Main View
+// MARK: - Window State
 
-struct MeetingTranscriptView: View {
-    @ObservedObject var session: MeetingSession
-    @ObservedObject var transcript: MeetingTranscript
-    @State private var selectedTab: MeetingTab = .notes
-    @State private var searchText: String = ""
-    @State private var showSearch: Bool = false
-    @State private var showSidebar: Bool = false
-    @State private var historyGroups: [(date: String, entries: [MeetingHistoryEntry])] = []
+@MainActor
+final class MeetingWindowState: ObservableObject {
+    @Published var tabs: [OpenMeetingTab] = []
+    @Published var activeTabID: UUID?
+    @Published var showSidebar = false
+    @Published var historyGroups: [(date: String, entries: [MeetingHistoryEntry])] = []
+
     var onOpenSettings: (() -> Void)?
+    var onStartRecording: ((_ name: String) -> MeetingSession?)?
+    var onStopRecording: ((MeetingSession) -> Void)?
 
-    init(session: MeetingSession, onOpenSettings: (() -> Void)? = nil) {
-        self.session = session
-        self.transcript = session.transcript
-        self.onOpenSettings = onOpenSettings
+    var activeTab: OpenMeetingTab? {
+        tabs.first { $0.id == activeTabID }
     }
 
-    @FocusState private var searchFieldFocused: Bool
+    func addRecordingTab(session: MeetingSession) {
+        let tab = OpenMeetingTab(transcript: session.transcript, fileURL: session.fileURL, session: session)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
+    func openFile(_ url: URL) {
+        // Already open? Switch to it.
+        if let existing = tabs.first(where: { $0.fileURL == url }) {
+            activeTabID = existing.id
+            return
+        }
+
+        // Parse and open in new tab
+        do {
+            let transcript = try MeetingMarkdownWriter.parse(from: url)
+            let tab = OpenMeetingTab(transcript: transcript, fileURL: url)
+            tabs.append(tab)
+            activeTabID = tab.id
+        } catch {
+            print("MeetingWindowState: failed to load \(url.lastPathComponent): \(error)")
+        }
+    }
+
+    func closeTab(_ tabID: UUID) {
+        // Stop recording if this is a live tab
+        if let tab = tabs.first(where: { $0.id == tabID }), let session = tab.session {
+            onStopRecording?(session)
+        }
+
+        tabs.removeAll { $0.id == tabID }
+
+        // Switch to adjacent tab
+        if activeTabID == tabID {
+            activeTabID = tabs.last?.id
+        }
+    }
+
+    func startNewNote() {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        let name = "Quick Note — \(formatter.string(from: Date()))"
+
+        guard let session = onStartRecording?(name) else { return }
+        addRecordingTab(session: session)
+    }
+
+    func loadHistory() {
+        let dir = MeetingTranscriptSettings.effectiveSaveDirectory()
+        historyGroups = MeetingHistory.loadEntries(from: dir)
+    }
+
+    func renameActiveTab() {
+        guard let tab = activeTab, let oldURL = tab.fileURL else { return }
+        let newSlug = MeetingMarkdownWriter.slugify(tab.transcript.meetingName)
+        let dir = oldURL.deletingLastPathComponent()
+        let newURL = dir.appendingPathComponent(newSlug + ".md")
+
+        // Don't rename if slug didn't change or target already exists
+        guard newURL != oldURL, !FileManager.default.fileExists(atPath: newURL.path) else {
+            saveActiveTab()
+            return
+        }
+
+        do {
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            tab.fileURL = newURL
+            // Also update the session's fileURL so auto-save goes to the new path
+            if let session = tab.session {
+                session.fileURL = newURL
+            }
+            saveActiveTab()
+            print("Renamed \(oldURL.lastPathComponent) → \(newURL.lastPathComponent)")
+        } catch {
+            print("Failed to rename: \(error)")
+            saveActiveTab() // Still save content even if rename fails
+        }
+    }
+
+    func saveActiveTab() {
+        guard let tab = activeTab, let url = tab.fileURL else { return }
+        let markdown = MeetingMarkdownWriter.renderMarkdown(transcript: tab.transcript)
+        try? markdown.write(to: url, atomically: true, encoding: .utf8)
+        loadHistory() // Refresh sidebar to show new/updated files
+    }
+}
+
+// MARK: - Root View
+
+struct MeetingRootView: View {
+    @ObservedObject var state: MeetingWindowState
 
     var body: some View {
         HStack(spacing: 0) {
-            // Collapsible sidebar
-            if showSidebar {
-                meetingSidebar
+            if state.showSidebar {
+                MeetingSidebarView(state: state)
                     .transition(.move(edge: .leading))
-
                 Rectangle()
                     .fill(Color(nsColor: .separatorColor))
                     .frame(width: 1)
             }
 
-            // Main content
             VStack(spacing: 0) {
-                toolbar
+                // Toolbar
+                MeetingToolbarView(state: state)
 
-                // No audio warning
-                if session.noAudioDetected {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                            .font(.caption)
-                        Text("No audio detected. Check your microphone is on and selected correctly.")
-                            .font(.caption)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Button("Open Settings") {
-                            onOpenSettings?()
-                        }
-                        .font(.caption.weight(.medium))
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-                        .controlSize(.small)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.orange.opacity(0.1))
+                // File tabs
+                if !state.tabs.isEmpty {
+                    fileTabBar
                 }
 
-                VStack(alignment: .leading, spacing: 0) {
-                    // Title + date + tabs (pinned at top)
-                    VStack(alignment: .leading, spacing: 0) {
-                        titleSection
-                        tabBar
-                    }
-                    .padding(.horizontal, 48)
-                    .padding(.top, 20)
-                    .frame(maxWidth: 720, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-
-                    // Search bar
-                    if showSearch {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                            TextField("Search...", text: $searchText)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 13))
-                                .focused($searchFieldFocused)
-                            if !searchText.isEmpty {
-                                Button(action: { searchText = "" }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                        .font(.caption)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Button(action: { showSearch = false; searchText = "" }) {
-                                Text("Done")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 52)
-                        .padding(.vertical, 8)
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                        .onAppear { searchFieldFocused = true }
-                    }
-
-                    // Tab content (fills remaining space)
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 0) {
-                                tabContent(proxy: proxy)
-                            }
-                            .padding(.horizontal, 48)
-                            .padding(.top, 24)
-                            .padding(.bottom, 60)
-                            .frame(maxWidth: 720, alignment: .leading)
-                            .frame(maxWidth: .infinity)
-                        }
-                        .onChange(of: transcript.segments.count) { _, _ in
-                            if selectedTab == .transcript, let last = transcript.segments.last {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    proxy.scrollTo(last.id, anchor: .bottom)
-                                }
-                            }
-                        }
-                    }
+                // Active tab content
+                if let tab = state.activeTab {
+                    MeetingTabContentView(tab: tab, state: state)
+                } else {
+                    emptyState
                 }
-
-                statusBar
             }
             .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(minWidth: 500, minHeight: 400)
-        .animation(.easeInOut(duration: 0.2), value: showSidebar)
-        .onAppear {
-            loadHistory()
-            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f" {
-                    showSearch.toggle()
-                    if !showSearch { searchText = "" }
-                    return nil
-                }
-                if event.keyCode == 53 && showSearch { // Escape
-                    showSearch = false
-                    searchText = ""
-                    return nil
-                }
-                return event
-            }
+        .animation(.easeInOut(duration: 0.2), value: state.showSidebar)
+        .onAppear { state.loadHistory() }
+        .onChange(of: state.showSidebar) { _, visible in
+            if visible { state.loadHistory() }
+        }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+            if state.showSidebar { state.loadHistory() }
         }
     }
 
-    // MARK: - Toolbar
+    // (Toolbar is MeetingToolbarView below)
 
-    private var toolbar: some View {
+    // MARK: - File Tab Bar
+
+    private var fileTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(state.tabs) { tab in
+                    FileTabView(tab: tab, isActive: state.activeTabID == tab.id) {
+                        state.saveActiveTab()
+                        state.activeTabID = tab.id
+                    } onClose: {
+                        state.closeTab(tab.id)
+                    }
+                }
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary.opacity(0.4))
+            Text("Open a meeting from the sidebar or start a new one")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Button("New Quick Note") {
+                state.startNewNote()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Content View for a Single Tab
+
+// MARK: - File Tab View (observes individual tab)
+
+private struct FileTabView: View {
+    @ObservedObject var tab: OpenMeetingTab
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if tab.isRecording {
+                Circle().fill(.red).frame(width: 6, height: 6)
+            }
+            Text(tab.transcript.meetingName)
+                .font(.system(size: 12))
+                .foregroundColor(isActive ? .primary : .secondary)
+                .lineLimit(1)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(isActive ? 1 : 0.5)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(isActive ? Color(nsColor: .textBackgroundColor) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isActive {
+                Rectangle().fill(Color.orange).frame(height: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
+    }
+}
+
+// MARK: - Toolbar (observes active tab directly)
+
+struct MeetingToolbarView: View {
+    @ObservedObject var state: MeetingWindowState
+
+    var body: some View {
         HStack(spacing: 12) {
-            Button(action: { showSidebar.toggle() }) {
+            Button(action: { state.showSidebar.toggle() }) {
                 Image(systemName: "sidebar.left")
                     .font(.system(size: 14))
                     .foregroundColor(.secondary)
@@ -243,20 +358,30 @@ struct MeetingTranscriptView: View {
 
             Spacer()
 
-            if session.isActive {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
+            if let tab = state.activeTab {
+                ActiveTabRecordingIndicator(tab: tab)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+}
 
-                    LiveDurationView(startDate: transcript.startDate)
+/// Separate view that observes a single tab so isRecording changes trigger re-render.
+private struct ActiveTabRecordingIndicator: View {
+    @ObservedObject var tab: OpenMeetingTab
+
+    var body: some View {
+        if tab.isRecording, let session = tab.session {
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                    LiveDurationView(startDate: tab.transcript.startDate)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
 
-                Button(action: {
-                    Task { await session.stop() }
-                }) {
+                Button(action: { Task { await session.stop() } }) {
                     Text("Stop recording")
                         .font(.caption.weight(.medium))
                         .foregroundColor(.white)
@@ -265,61 +390,132 @@ struct MeetingTranscriptView: View {
                         .background(Capsule().fill(.red))
                 }
                 .buttonStyle(.plain)
-            } else if transcript.endDate != nil {
-                Text(transcript.formattedDuration)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
+}
 
-    // MARK: - Title
+// MARK: - Content View for a Single Tab
 
-    private var titleSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField("Untitled", text: $transcript.meetingName)
-                .textFieldStyle(.plain)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.primary)
+struct MeetingTabContentView: View {
+    @ObservedObject var tab: OpenMeetingTab
+    @ObservedObject var state: MeetingWindowState
+    @State private var selectedContentTab: MeetingContentTab = .notes
+    @State private var searchText = ""
+    @State private var showSearch = false
+    @FocusState private var searchFocused: Bool
 
-            Text(dateSubtitle)
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .padding(.bottom, 20)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Title + date
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Untitled", text: $tab.transcript.meetingName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.primary)
+                    .onSubmit { state.renameActiveTab() }
+
+                Text(dateSubtitle)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 20)
+
+                if !tab.transcript.attendees.isEmpty {
+                    Text("**Attendees:** \(tab.transcript.attendees.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 8)
+                }
+            }
+            .padding(.horizontal, 48)
+            .padding(.top, 20)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+
+            // Content tabs (Notes / Transcript / Summary)
+            contentTabBar
+                .padding(.horizontal, 48)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity)
+
+            // Search
+            if showSearch {
+                searchBar
+            }
+
+            // No audio warning
+            if let session = tab.session, session.noAudioDetected {
+                noAudioWarning
+            }
+
+            // Content
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        contentForTab(proxy: proxy)
+                    }
+                    .padding(.horizontal, 48)
+                    .padding(.top, 24)
+                    .padding(.bottom, 60)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                }
+                .onChange(of: tab.transcript.segments.count) { _, _ in
+                    if selectedContentTab == .transcript, let last = tab.transcript.segments.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+
+            // Status bar
+            statusBar
+        }
+        .onAppear {
+            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "f" else {
+                    if event.keyCode == 53, showSearch { // Escape
+                        showSearch = false; searchText = ""
+                        return nil
+                    }
+                    return event
+                }
+                showSearch.toggle()
+                if !showSearch { searchText = "" }
+                return nil
+            }
         }
     }
+
+    // MARK: - Date subtitle
 
     private var dateSubtitle: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        if let endDate = transcript.endDate {
-            let endFormatter = DateFormatter()
-            endFormatter.timeStyle = .short
-            return "\(formatter.string(from: transcript.startDate)) — \(endFormatter.string(from: endDate))"
+        let fmt = DateFormatter()
+        fmt.dateStyle = .medium
+        fmt.timeStyle = .short
+        if let end = tab.transcript.endDate {
+            let endFmt = DateFormatter()
+            endFmt.timeStyle = .short
+            return "\(fmt.string(from: tab.transcript.startDate)) — \(endFmt.string(from: end))"
         }
-        return formatter.string(from: transcript.startDate)
+        return fmt.string(from: tab.transcript.startDate)
     }
 
-    // MARK: - Tab Bar (Underline style)
+    // MARK: - Content Tab Bar
 
-    private var tabBar: some View {
+    private var contentTabBar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 24) {
-                ForEach(MeetingTab.allCases, id: \.self) { tab in
-                    Button(action: { selectedTab = tab }) {
-                        Text(tab.label)
-                            .font(.system(size: 13, weight: selectedTab == tab ? .semibold : .regular))
-                            .foregroundColor(selectedTab == tab ? .orange : .secondary)
+                ForEach(MeetingContentTab.allCases, id: \.self) { ct in
+                    Button(action: { selectedContentTab = ct }) {
+                        Text(ct.label)
+                            .font(.system(size: 13, weight: selectedContentTab == ct ? .semibold : .regular))
+                            .foregroundColor(selectedContentTab == ct ? .orange : .secondary)
                             .padding(.bottom, 10)
                             .overlay(alignment: .bottom) {
-                                if selectedTab == tab {
-                                    Rectangle()
-                                        .fill(Color.orange)
-                                        .frame(height: 2)
-                                        .offset(y: 1)
+                                if selectedContentTab == ct {
+                                    Rectangle().fill(Color.orange).frame(height: 2).offset(y: 1)
                                 }
                             }
                     }
@@ -327,172 +523,147 @@ struct MeetingTranscriptView: View {
                 }
                 Spacer()
             }
-
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
         }
+    }
+
+    // MARK: - Search
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundColor(.secondary).font(.caption)
+            TextField("Search...", text: $searchText)
+                .textFieldStyle(.plain).font(.system(size: 13)).focused($searchFocused)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary).font(.caption)
+                }.buttonStyle(.plain)
+            }
+            Button(action: { showSearch = false; searchText = "" }) {
+                Text("Done").font(.caption).foregroundColor(.secondary)
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 52).padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .onAppear { searchFocused = true }
+    }
+
+    // MARK: - No Audio Warning
+
+    private var noAudioWarning: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange).font(.caption)
+            Text("No audio detected. Check your microphone.").font(.caption)
+            Spacer()
+            Button("Open Settings") { state.onOpenSettings?() }
+                .font(.caption.weight(.medium)).buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(Color.orange.opacity(0.1))
     }
 
     // MARK: - Tab Content
 
     @ViewBuilder
-    private func tabContent(proxy: ScrollViewProxy) -> some View {
-        switch selectedTab {
-        case .notes:
-            notesTab
-        case .transcript:
-            transcriptTab
-        case .summary:
-            summaryTab
+    private func contentForTab(proxy: ScrollViewProxy) -> some View {
+        switch selectedContentTab {
+        case .notes: notesContent
+        case .transcript: transcriptContent
+        case .summary: summaryContent
         }
-    }
-
-    // MARK: - Notes Tab (Notion-style)
-
-    private var filteredSegments: [TranscriptSegment] {
-        guard !searchText.isEmpty else { return transcript.segments }
-        return transcript.segments.filter { $0.text.localizedCaseInsensitiveContains(searchText) }
     }
 
     private static let notesFont = Font.custom("Georgia", size: 15)
 
-    private var notesTab: some View {
+    private var notesContent: some View {
         ZStack(alignment: .topLeading) {
-            if transcript.notes.isEmpty {
+            if tab.transcript.notes.isEmpty {
                 Text("Start typing your notes...")
                     .font(Self.notesFont)
                     .foregroundColor(Color(nsColor: .placeholderTextColor))
-                    .padding(.top, 8)
-                    .padding(.leading, 5)
+                    .padding(.top, 1).padding(.leading, 6)
                     .allowsHitTesting(false)
             }
-
-            TextEditor(text: $transcript.notes)
-                .font(Self.notesFont)
-                .lineSpacing(6)
+            TextEditor(text: $tab.transcript.notes)
+                .font(Self.notesFont).lineSpacing(6)
                 .scrollContentBackground(.hidden)
                 .frame(maxHeight: .infinity)
+                .onChange(of: tab.transcript.notes) { _, _ in
+                    state.saveActiveTab()
+                }
         }
     }
 
-    // MARK: - Transcript Tab
+    private var filteredSegments: [TranscriptSegment] {
+        guard !searchText.isEmpty else { return tab.transcript.segments }
+        return tab.transcript.segments.filter { $0.text.localizedCaseInsensitiveContains(searchText) }
+    }
 
-    private var transcriptTab: some View {
+    private var transcriptContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if transcript.segments.isEmpty {
-                if session.isActive {
+            if tab.transcript.segments.isEmpty {
+                if tab.isRecording {
                     HStack(spacing: 8) {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                        Text("Listening — segments appear every ~30 seconds")
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 8)
+                        ProgressView().scaleEffect(0.6)
+                        Text("Listening — segments appear every ~30 seconds").font(.callout).foregroundColor(.secondary)
+                    }.padding(.vertical, 8)
                 } else {
-                    Text("No transcript yet.")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 8)
+                    Text("No transcript yet.").font(.callout).foregroundColor(.secondary).padding(.vertical, 8)
                 }
             }
-
             ForEach(filteredSegments) { segment in
-                TranscriptSegmentRow(segment: segment, highlightText: searchText)
-                    .id(segment.id)
+                TranscriptSegmentRow(segment: segment, highlightText: searchText).id(segment.id)
             }
-
-            if session.isActive && !transcript.segments.isEmpty {
+            if tab.isRecording && !tab.transcript.segments.isEmpty {
                 HStack(spacing: 8) {
                     HStack(spacing: 4) {
                         Circle().fill(Color.secondary.opacity(0.4)).frame(width: 4, height: 4)
                         Circle().fill(Color.secondary.opacity(0.3)).frame(width: 4, height: 4)
                         Circle().fill(Color.secondary.opacity(0.2)).frame(width: 4, height: 4)
                     }
-                    Text("Listening...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 4)
-            }
-        }
-    }
-
-    // MARK: - Summary Tab
-
-    private var summaryTab: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            if session.isActive {
-                // During meeting
-                VStack(spacing: 12) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 32))
-                        .foregroundColor(.orange.opacity(0.4))
-                    Text("Summary will be generated when the meeting ends")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 60)
-            } else if transcript.segments.isEmpty {
-                Text("No transcript to summarize.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 40)
-            } else {
-                // Post-meeting summary
-                summaryContent
+                    Text("Listening...").font(.caption).foregroundColor(.secondary)
+                }.padding(.top, 4)
             }
         }
     }
 
     private var summaryContent: some View {
         VStack(alignment: .leading, spacing: 24) {
-            // Meeting Stats
+            if tab.isRecording {
+                VStack(spacing: 12) {
+                    Image(systemName: "sparkles").font(.system(size: 32)).foregroundColor(.orange.opacity(0.4))
+                    Text("Summary will be generated when the meeting ends").font(.callout).foregroundColor(.secondary)
+                }.frame(maxWidth: .infinity).padding(.vertical, 60)
+            } else if tab.transcript.segments.isEmpty {
+                Text("No transcript to summarize.").font(.callout).foregroundColor(.secondary).padding(.vertical, 40)
+            } else {
+                summaryStats
+            }
+        }
+    }
+
+    private var summaryStats: some View {
+        VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 SummarySectionHeader(title: "Meeting Stats")
-
                 HStack(spacing: 24) {
-                    StatBlock(value: transcript.formattedDuration, label: "Duration")
-                    StatBlock(value: "\(transcript.segments.count)", label: "Segments")
-
-                    let myCount = transcript.segments.filter { $0.speaker == .me }.count
-                    let total = max(transcript.segments.count, 1)
+                    StatBlock(value: tab.transcript.formattedDuration, label: "Duration")
+                    StatBlock(value: "\(tab.transcript.segments.count)", label: "Segments")
+                    let myCount = tab.transcript.segments.filter { $0.speaker == .me }.count
+                    let total = max(tab.transcript.segments.count, 1)
                     let myPct = Int(Double(myCount) / Double(total) * 100)
                     StatBlock(value: "\(myPct)%", label: "You spoke", color: .orange)
                     StatBlock(value: "\(100 - myPct)%", label: "Others spoke", color: .blue)
                 }
             }
-
-            // Key Topics (placeholder — would be LLM-generated)
-            VStack(alignment: .leading, spacing: 10) {
-                SummarySectionHeader(title: "Key Topics")
-                Text("Key topics will be extracted from the transcript using the local cleanup model after the meeting ends.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
-            }
-
-            // TL;DR (placeholder)
             VStack(alignment: .leading, spacing: 10) {
                 SummarySectionHeader(title: "TL;DR")
-                Text("A brief summary of the meeting will appear here, generated locally after the meeting ends.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .padding(12)
+                Text("Summary will be generated locally after the meeting ends.")
+                    .font(.callout).foregroundColor(.secondary).padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
                     .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(Color.orange)
-                            .frame(width: 3)
-                            .clipShape(RoundedRectangle(cornerRadius: 2))
+                        Rectangle().fill(Color.orange).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2))
                     }
             }
         }
@@ -502,108 +673,101 @@ struct MeetingTranscriptView: View {
 
     private var statusBar: some View {
         HStack(spacing: 12) {
-            if let url = session.fileURL {
+            if let url = tab.fileURL {
                 Button(action: {
                     NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.text")
                         Text(url.lastPathComponent)
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+                    }.font(.caption).foregroundColor(.secondary)
+                }.buttonStyle(.plain)
             }
-
             Spacer()
-
-            if !transcript.segments.isEmpty {
-                Text("\(transcript.segments.count) segments")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            if !tab.transcript.segments.isEmpty {
+                Text("\(tab.transcript.segments.count) segments").font(.caption).foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16).padding(.vertical, 6)
         .background(Color(nsColor: .textBackgroundColor))
         .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.5))
-                .frame(height: 1)
+            Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
         }
     }
+}
 
-    // MARK: - Meeting Sidebar
+// MARK: - Content Tab Enum
 
-    private var meetingSidebar: some View {
+enum MeetingContentTab: String, CaseIterable {
+    case notes, transcript, summary
+    var label: String {
+        switch self {
+        case .notes: "📝 Notes"
+        case .transcript: "📜 Transcript"
+        case .summary: "✨ Summary"
+        }
+    }
+}
+
+// MARK: - Sidebar
+
+struct MeetingSidebarView: View {
+    @ObservedObject var state: MeetingWindowState
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
+            HStack(spacing: 8) {
                 Text("Meetings")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.secondary)
                 Spacer()
+                Button(action: { state.startNewNote() }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("New quick note")
+
+                Button(action: { openMeetingsFolder() }) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Show in Finder")
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 12)
 
-            // Current meeting
-            if session.isActive {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Circle().fill(.red).frame(width: 6, height: 6)
-                        Text("Recording")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(.red)
-                    }
-                    Text(transcript.meetingName)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.1)))
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
-            }
+            Divider().padding(.horizontal, 12).padding(.bottom, 4)
 
-            Divider()
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
-
-            // Past meetings
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    if historyGroups.isEmpty {
+                    if state.historyGroups.isEmpty {
                         Text("No past meetings")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
+                            .font(.caption).foregroundColor(.secondary)
+                            .padding(.horizontal, 16).padding(.top, 8)
                     }
 
-                    ForEach(historyGroups, id: \.date) { group in
+                    ForEach(state.historyGroups, id: \.date) { group in
                         Text(group.date)
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 16)
-                            .padding(.top, 10)
-                            .padding(.bottom, 2)
+                            .padding(.top, 10).padding(.bottom, 2)
 
                         ForEach(group.entries) { entry in
-                            Button(action: {
-                                openMeetingFile(entry.fileURL)
-                            }) {
+                            let isOpen = state.tabs.contains { $0.fileURL == entry.fileURL }
+                            Button(action: { state.openFile(entry.fileURL) }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "doc.text")
                                         .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(isOpen ? .orange : .secondary)
                                     Text(entry.name)
                                         .font(.system(size: 12))
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(isOpen ? .orange : .primary)
                                         .lineLimit(1)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -612,162 +776,56 @@ struct MeetingTranscriptView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Show in Finder") {
+                                    NSWorkspace.shared.selectFile(
+                                        entry.fileURL.path,
+                                        inFileViewerRootedAtPath: entry.fileURL.deletingLastPathComponent().path
+                                    )
+                                }
+                                Divider()
+                                Button("Delete", role: .destructive) {
+                                    deleteEntry(entry)
+                                }
+                            }
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
-
-            Divider()
-                .padding(.horizontal, 12)
-
-            // Open vault button
-            Button(action: {
-                openMeetingsFolder()
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11))
-                    Text(Self.openFolderButtonLabel)
-                        .font(.system(size: 12))
-                }
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            .frame(maxHeight: .infinity)
         }
         .frame(width: 200)
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    // MARK: - Smart File Opening
-
-    private static let obsidianPreferenceKey = "meetingOpenInObsidian"
-    private static let obsidianPreferenceSetKey = "meetingOpenPreferenceSet"
-
-    private static var hasObsidian: Bool {
-        NSWorkspace.shared.urlForApplication(toOpen: URL(string: "obsidian://")!) != nil
-    }
-
-    private static var hasObsidianVault: Bool {
-        let dir = MeetingTranscriptSettings.effectiveSaveDirectory()
-        return FileManager.default.fileExists(atPath: dir.appendingPathComponent(".obsidian").path)
-    }
-
-    /// The label for the bottom sidebar button, based on detected state.
-    static var openFolderButtonLabel: String {
-        let prefSet = UserDefaults.standard.bool(forKey: obsidianPreferenceSetKey)
-        if prefSet {
-            return UserDefaults.standard.bool(forKey: obsidianPreferenceKey)
-                ? "Open in Obsidian" : "Open in Finder"
+    private func deleteEntry(_ entry: MeetingHistoryEntry) {
+        // Close the tab if it's open
+        if let tab = state.tabs.first(where: { $0.fileURL == entry.fileURL }) {
+            state.closeTab(tab.id)
         }
-        return hasObsidian ? "Open in Obsidian" : "Open in Finder"
-    }
-
-    private func openMeetingFile(_ fileURL: URL) {
-        guard Self.hasObsidian else {
-            NSWorkspace.shared.open(fileURL)
-            return
-        }
-
-        let prefSet = UserDefaults.standard.bool(forKey: Self.obsidianPreferenceSetKey)
-        if prefSet {
-            if UserDefaults.standard.bool(forKey: Self.obsidianPreferenceKey) {
-                openFileInObsidian(fileURL)
-            } else {
-                NSWorkspace.shared.open(fileURL)
-            }
-            return
-        }
-
-        // First time — vault exists? Open directly. No vault? Ask.
-        if Self.hasObsidianVault {
-            UserDefaults.standard.set(true, forKey: Self.obsidianPreferenceSetKey)
-            UserDefaults.standard.set(true, forKey: Self.obsidianPreferenceKey)
-            openFileInObsidian(fileURL)
-        } else {
-            showObsidianVaultPrompt(then: fileURL)
+        // Move to trash
+        do {
+            try FileManager.default.trashItem(at: entry.fileURL, resultingItemURL: nil)
+            state.loadHistory()
+        } catch {
+            print("Failed to delete \(entry.fileURL.lastPathComponent): \(error)")
         }
     }
 
     private func openMeetingsFolder() {
         let dir = MeetingTranscriptSettings.effectiveSaveDirectory()
-        guard Self.hasObsidian else {
-            NSWorkspace.shared.open(dir)
-            return
-        }
-
-        let prefSet = UserDefaults.standard.bool(forKey: Self.obsidianPreferenceSetKey)
-        let useObsidian = prefSet
-            ? UserDefaults.standard.bool(forKey: Self.obsidianPreferenceKey)
-            : Self.hasObsidianVault
-
-        if useObsidian {
-            if !Self.hasObsidianVault { ensureObsidianVault() }
-            let path = dir.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? dir.path
-            if let url = URL(string: "obsidian://open?path=\(path)") {
-                NSWorkspace.shared.open(url)
-                return
-            }
-        }
         NSWorkspace.shared.open(dir)
-    }
-
-    private func showObsidianVaultPrompt(then fileURL: URL) {
-        let alert = NSAlert()
-        alert.messageText = "Open in Obsidian?"
-        alert.informativeText = "Your meetings folder can be set up as an Obsidian vault for rich markdown editing, linking, and search. This creates a .obsidian folder in your meetings directory."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Create Vault & Open")
-        alert.addButton(withTitle: "Use Default App")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            ensureObsidianVault()
-            UserDefaults.standard.set(true, forKey: Self.obsidianPreferenceSetKey)
-            UserDefaults.standard.set(true, forKey: Self.obsidianPreferenceKey)
-            openFileInObsidian(fileURL)
-        } else {
-            UserDefaults.standard.set(true, forKey: Self.obsidianPreferenceSetKey)
-            UserDefaults.standard.set(false, forKey: Self.obsidianPreferenceKey)
-            NSWorkspace.shared.open(fileURL)
-        }
-    }
-
-    private func openFileInObsidian(_ fileURL: URL) {
-        let path = fileURL.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileURL.path
-        if let url = URL(string: "obsidian://open?path=\(path)") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func ensureObsidianVault() {
-        let dir = MeetingTranscriptSettings.effectiveSaveDirectory()
-        let obsidianDir = dir.appendingPathComponent(".obsidian")
-        if !FileManager.default.fileExists(atPath: obsidianDir.path) {
-            try? FileManager.default.createDirectory(at: obsidianDir, withIntermediateDirectories: true)
-        }
-    }
-
-    private func loadHistory() {
-        let dir = MeetingTranscriptSettings.effectiveSaveDirectory()
-        historyGroups = MeetingHistory.loadEntries(from: dir)
     }
 }
 
-// MARK: - Summary Helpers
+// MARK: - Helper Views
 
 private struct SummarySectionHeader: View {
     let title: String
-
     var body: some View {
         Text(title.uppercased())
             .font(.system(size: 11, weight: .bold))
-            .foregroundColor(.secondary)
-            .tracking(0.5)
+            .foregroundColor(.secondary).tracking(0.5)
     }
 }
 
@@ -775,20 +833,13 @@ private struct StatBlock: View {
     let value: String
     let label: String
     var color: Color = .primary
-
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundColor(color)
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Text(value).font(.system(size: 22, weight: .bold)).foregroundColor(color)
+            Text(label).font(.caption).foregroundColor(.secondary)
         }
     }
 }
-
-// MARK: - Transcript Segment Row
 
 struct TranscriptSegmentRow: View {
     let segment: TranscriptSegment
@@ -800,17 +851,12 @@ struct TranscriptSegmentRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 48, alignment: .trailing)
-
             Text(segment.speaker.displayName)
-                .font(.caption2.weight(.semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .font(.caption2.weight(.semibold)).foregroundColor(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().fill(speakerColor))
-
             highlightedText
-                .font(.system(size: 14))
-                .lineSpacing(3)
+                .font(.system(size: 14)).lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -818,54 +864,37 @@ struct TranscriptSegmentRow: View {
 
     private var highlightedText: Text {
         guard !highlightText.isEmpty else { return Text(segment.text) }
-
         var attributed = AttributedString(segment.text)
         let query = highlightText.lowercased()
         var searchRange = attributed.startIndex..<attributed.endIndex
-
         while let range = attributed[searchRange].range(of: query, options: .caseInsensitive) {
             attributed[range].backgroundColor = .yellow.opacity(0.5)
             attributed[range].foregroundColor = .black
             searchRange = range.upperBound..<attributed.endIndex
         }
-
         return Text(attributed)
     }
 
     private var speakerColor: Color {
         switch segment.speaker {
-        case .me:
-            return .orange
-        case .remote:
-            return .blue
+        case .me: return .orange
+        case .remote: return .blue
         }
     }
 }
 
-// MARK: - Live Duration Timer
-
 struct LiveDurationView: View {
     let startDate: Date
-
     @State private var now = Date()
-
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Text(formattedDuration)
-            .onReceive(timer) { tick in
-                now = tick
-            }
+        Text(formattedDuration).onReceive(timer) { now = $0 }
     }
 
     private var formattedDuration: String {
         let total = Int(now.timeIntervalSince(startDate))
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%02d:%02d", minutes, seconds)
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
     }
 }

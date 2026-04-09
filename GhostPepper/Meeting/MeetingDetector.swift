@@ -116,10 +116,12 @@ final class MeetingDetector {
         if let appName = Self.knownMeetingApps[frontmostBundleID],
            !dismissedBundleIDs.contains(frontmostBundleID) {
             dismiss(bundleID: frontmostBundleID)
+            let windowTitle = frontmostWindowTitle(app: frontmost)
+            let suggestedName = Self.meetingNameFromWindowTitle(windowTitle, appName: appName)
             let meeting = DetectedMeeting(
                 appName: appName,
                 bundleIdentifier: frontmostBundleID,
-                suggestedName: Self.suggestedMeetingName(appName: appName)
+                suggestedName: suggestedName
             )
             onMeetingDetected?(meeting)
             return
@@ -246,5 +248,42 @@ final class MeetingDetector {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return "\(appName) — \(formatter.string(from: Date()))"
+    }
+
+    /// Get the frontmost window title of a native app.
+    private func frontmostWindowTitle(app: NSRunningApplication) -> String? {
+        let titles = browserWindowTitles(app: app) // works for any app, not just browsers
+        return titles.first
+    }
+
+    /// Extract a useful meeting name from a window title.
+    /// Zoom titles: "Zoom Meeting", "Matt's Weekly Standup", "Zoom - 3 Participants"
+    /// Teams titles: "Matt Hartman | Microsoft Teams", "Sprint Planning | Microsoft Teams"
+    private static func meetingNameFromWindowTitle(_ title: String?, appName: String) -> String {
+        guard let title = title, !title.isEmpty else {
+            return suggestedMeetingName(appName: appName)
+        }
+
+        let cleaned = title
+            // Remove generic app suffixes
+            .replacingOccurrences(of: " | Microsoft Teams", with: "")
+            .replacingOccurrences(of: " - Microsoft Teams", with: "")
+            .replacingOccurrences(of: " – Microsoft Teams", with: "")
+            .replacingOccurrences(of: " - Zoom", with: "")
+            .replacingOccurrences(of: " | Zoom", with: "")
+            .replacingOccurrences(of: " - Cisco Webex", with: "")
+            .replacingOccurrences(of: " | Slack", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Skip generic/unhelpful titles
+        let generic: Set<String> = [
+            "zoom", "zoom meeting", "microsoft teams", "teams",
+            "facetime", "webex", "slack", "discord", ""
+        ]
+        if generic.contains(cleaned.lowercased()) {
+            return suggestedMeetingName(appName: appName)
+        }
+
+        return cleaned
     }
 }

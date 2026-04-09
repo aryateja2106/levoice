@@ -758,6 +758,13 @@ class AppState: ObservableObject {
         controller.onOpenSettings = { [weak self] in
             self?.showSettings()
         }
+        controller.onStartRecording = { [weak self] name -> MeetingSession? in
+            self?.createMeetingSession(name: name)
+        }
+        controller.onStopRecording = { [weak self] session in
+            Task { await session.stop() }
+            self?.debugLogStore.record(category: .model, message: "Meeting stopped: \(session.transcript.meetingName)")
+        }
         return controller
     }()
     private let meetingDetector = MeetingDetector()
@@ -838,41 +845,50 @@ class AppState: ObservableObject {
 
     // MARK: - Meeting Transcript
 
-    func startMeetingTranscription(meetingName: String) {
-        guard activeMeetingSession == nil else { return }
+    /// Creates a new MeetingSession, starts recording, and returns it.
+    /// Called by the window state when the user clicks "+" or auto-detection triggers.
+    func createMeetingSession(name: String) -> MeetingSession? {
         guard PermissionChecker.hasScreenRecordingPermission() else {
             PermissionChecker.requestScreenRecordingPermission()
-            return
+            return nil
         }
 
         let saveDir = MeetingTranscriptSettings.effectiveSaveDirectory()
         let session = MeetingSession(
-            meetingName: meetingName,
+            meetingName: name,
             transcriber: transcriber,
             saveDirectory: saveDir
         )
         activeMeetingSession = session
-        meetingTranscriptWindowController.show(session: session)
 
         Task {
             do {
                 try await session.start()
-                debugLogStore.record(category: .model, message: "Meeting transcription started: \(meetingName)")
+                debugLogStore.record(category: .model, message: "Meeting transcription started: \(name)")
             } catch {
                 debugLogStore.record(category: .model, message: "Meeting transcription failed to start: \(error.localizedDescription)")
                 activeMeetingSession = nil
             }
         }
+
+        return session
+    }
+
+    func startMeetingTranscription(meetingName: String) {
+        guard let session = createMeetingSession(name: meetingName) else { return }
+        meetingTranscriptWindowController.show(session: session)
     }
 
     func showMeetingTranscriptWindow() {
-        guard let session = activeMeetingSession else { return }
-        meetingTranscriptWindowController.show(session: session)
+        meetingTranscriptWindowController.show()
+    }
+
+    func showOrCreateMeetingWindow() {
+        meetingTranscriptWindowController.show()
     }
 
     func stopMeetingTranscription() {
         guard let session = activeMeetingSession else { return }
-        meetingTranscriptWindowController.close()
         Task {
             await session.stop()
             debugLogStore.record(category: .model, message: "Meeting transcription stopped: \(session.transcript.meetingName)")
