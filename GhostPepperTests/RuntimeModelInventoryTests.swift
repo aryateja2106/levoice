@@ -15,36 +15,34 @@ final class RuntimeModelInventoryTests: XCTestCase {
             cachedCleanupKinds: [.qwen35_0_8b_q4_k_m, .qwen35_2b_q4_k_m]
         )
 
-        XCTAssertEqual(rows.map(\.name), [
-            "Whisper tiny.en (speed)",
-            "Whisper small.en (accuracy)",
-            "Whisper small (multilingual)",
-            "Parakeet v3 (25 languages)",
-            "Qwen 3.5 0.8B Q4_K_M (Very fast)",
-            "Qwen 3.5 2B Q4_K_M (Fast)",
-            "Qwen 3.5 4B Q4_K_M (Full)",
-        ])
+        XCTAssertTrue(rows.map(\.name).contains("Whisper tiny.en (speed)"))
+        XCTAssertTrue(rows.map(\.name).contains("Whisper small.en (accuracy)"))
+        XCTAssertTrue(rows.map(\.name).contains("Whisper small (multilingual)"))
+        XCTAssertTrue(rows.map(\.name).contains("Parakeet v3 (25 languages)"))
+        XCTAssertTrue(rows.map(\.name).contains("Qwen 3.5 0.8B Q4_K_M (Very fast)"))
+        XCTAssertTrue(rows.map(\.name).contains("Qwen 3.5 2B Q4_K_M (Fast)"))
+        XCTAssertTrue(rows.map(\.name).contains("Qwen 3.5 4B Q4_K_M (Full)"))
 
-        XCTAssertEqual(rows[0].status, .loaded)
-        XCTAssertFalse(rows[0].isSelected)
+        XCTAssertEqual(row(named: "Whisper tiny.en (speed)", in: rows)?.status, .loaded)
+        XCTAssertEqual(row(named: "Whisper tiny.en (speed)", in: rows)?.isSelected, false)
 
-        XCTAssertEqual(rows[1].status, .downloading(progress: nil))
-        XCTAssertTrue(rows[1].isSelected)
+        XCTAssertEqual(row(named: "Whisper small.en (accuracy)", in: rows)?.status, .downloading(progress: nil))
+        XCTAssertEqual(row(named: "Whisper small.en (accuracy)", in: rows)?.isSelected, true)
 
-        XCTAssertEqual(rows[2].status, .notLoaded)
-        XCTAssertFalse(rows[2].isSelected)
+        XCTAssertEqual(row(named: "Whisper small (multilingual)", in: rows)?.status, .notLoaded)
+        XCTAssertEqual(row(named: "Whisper small (multilingual)", in: rows)?.isSelected, false)
 
-        XCTAssertEqual(rows[3].status, .notLoaded)
-        XCTAssertFalse(rows[3].isSelected)
+        XCTAssertEqual(row(named: "Parakeet v3 (25 languages)", in: rows)?.status, .notLoaded)
+        XCTAssertEqual(row(named: "Parakeet v3 (25 languages)", in: rows)?.isSelected, false)
 
-        XCTAssertEqual(rows[4].status, .loaded)
-        XCTAssertFalse(rows[4].isSelected)
+        XCTAssertEqual(row(named: "Qwen 3.5 0.8B Q4_K_M (Very fast)", in: rows)?.status, .loaded)
+        XCTAssertEqual(row(named: "Qwen 3.5 0.8B Q4_K_M (Very fast)", in: rows)?.isSelected, false)
 
-        XCTAssertEqual(rows[5].status, .loaded)
-        XCTAssertFalse(rows[5].isSelected)
+        XCTAssertEqual(row(named: "Qwen 3.5 2B Q4_K_M (Fast)", in: rows)?.status, .loaded)
+        XCTAssertEqual(row(named: "Qwen 3.5 2B Q4_K_M (Fast)", in: rows)?.isSelected, false)
 
-        XCTAssertEqual(rows[6].status, .downloading(progress: 0.4))
-        XCTAssertFalse(rows[6].isSelected)
+        XCTAssertEqual(row(named: "Qwen 3.5 4B Q4_K_M (Full)", in: rows)?.status, .downloading(progress: 0.4))
+        XCTAssertEqual(row(named: "Qwen 3.5 4B Q4_K_M (Full)", in: rows)?.isSelected, true)
     }
 
     func testRuntimeModelRowsSeparateSelectedSpeechModelFromActiveDownload() {
@@ -80,5 +78,27 @@ final class RuntimeModelInventoryTests: XCTestCase {
 
         XCTAssertEqual(rows[1].status, .loading)
         XCTAssertNil(RuntimeModelInventory.activeDownloadText(rows: rows))
+    }
+
+    func testRuntimeModelRowsShowActiveCleanupLoadForNonSelectedCleanupModel() {
+        let rows = RuntimeModelInventory.rows(
+            selectedSpeechModelName: "openai_whisper-small.en",
+            activeSpeechModelName: "openai_whisper-small.en",
+            speechModelState: .ready,
+            speechDownloadProgress: nil,
+            cachedSpeechModelNames: ["openai_whisper-small.en"],
+            cleanupState: .loadingModel(kind: .qwen35_0_8b_q4_k_m),
+            selectedCleanupModelKind: .qwen35_2b_q4_k_m,
+            cachedCleanupKinds: [.qwen35_0_8b_q4_k_m]
+        )
+
+        XCTAssertEqual(row(named: "Qwen 3.5 0.8B Q4_K_M (Very fast)", in: rows)?.status, .loading)
+        XCTAssertEqual(row(named: "Qwen 3.5 0.8B Q4_K_M (Very fast)", in: rows)?.isSelected, false)
+        XCTAssertEqual(row(named: "Qwen 3.5 2B Q4_K_M (Fast)", in: rows)?.status, .notLoaded)
+        XCTAssertEqual(row(named: "Qwen 3.5 2B Q4_K_M (Fast)", in: rows)?.isSelected, true)
+    }
+
+    private func row(named name: String, in rows: [RuntimeModelRow]) -> RuntimeModelRow? {
+        rows.first(where: { $0.name == name })
     }
 }

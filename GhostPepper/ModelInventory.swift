@@ -47,10 +47,9 @@ enum RuntimeModelInventory {
                 id: "cleanup-\(model.fileName)",
                 name: model.displayName,
                 sizeDescription: model.sizeDescription,
-                isSelected: false,
+                isSelected: model.kind == selectedCleanupModelKind,
                 status: statusForCleanupModel(
                     kind: model.kind,
-                    selectedCleanupModelKind: selectedCleanupModelKind,
                     cleanupState: cleanupState,
                     cachedCleanupKinds: cachedCleanupKinds
                 )
@@ -95,7 +94,6 @@ enum RuntimeModelInventory {
 
     private static func statusForCleanupModel(
         kind: LocalCleanupModelKind,
-        selectedCleanupModelKind: LocalCleanupModelKind,
         cleanupState: CleanupModelState,
         cachedCleanupKinds: Set<LocalCleanupModelKind>
     ) -> RuntimeModelStatus {
@@ -103,7 +101,7 @@ enum RuntimeModelInventory {
             return .downloading(progress: progress)
         }
 
-        if cleanupState == .loadingModel, selectedCleanupModelKind == kind {
+        if case let .loadingModel(activeKind) = cleanupState, activeKind == kind {
             return .loading
         }
 

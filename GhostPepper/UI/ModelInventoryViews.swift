@@ -13,6 +13,7 @@ struct ModelInventoryCard: View {
                     onDelete: canDelete(row) ? { onDelete?(row) } : nil,
                     onDownload: canDownload(row) ? { onDownload?(row) } : nil
                 )
+                .id(row.viewIdentity)
             }
         }
         .padding(10)
@@ -30,6 +31,28 @@ struct ModelInventoryCard: View {
     private func canDownload(_ row: RuntimeModelRow) -> Bool {
         guard onDownload != nil else { return false }
         return row.status == .notLoaded
+    }
+}
+
+private extension RuntimeModelRow {
+    var viewIdentity: String {
+        "\(id)-\(status.identityKey)-\(isSelected)"
+    }
+}
+
+private extension RuntimeModelStatus {
+    var identityKey: String {
+        switch self {
+        case .notLoaded:
+            return "not-loaded"
+        case .loading:
+            return "loading"
+        case .loaded:
+            return "loaded"
+        case .downloading(let progress):
+            let progressKey = progress.map { String(format: "%.3f", $0) } ?? "indeterminate"
+            return "downloading-\(progressKey)"
+        }
     }
 }
 

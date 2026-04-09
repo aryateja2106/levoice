@@ -18,7 +18,7 @@ private extension CleanupModelProbeThinkingMode {
 enum CleanupModelState: Equatable {
     case idle
     case downloading(kind: LocalCleanupModelKind, progress: Double)
-    case loadingModel
+    case loadingModel(kind: LocalCleanupModelKind)
     case ready
     case error
 }
@@ -392,7 +392,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
             return
         }
 
-        if state == .loadingModel {
+        if case .loadingModel = state {
             await waitForActiveLoad()
             if activeLoadedModelKind == kind && activeLLM != nil {
                 state = .ready
@@ -427,7 +427,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
             }
         }
 
-        state = .loadingModel
+        state = .loadingModel(kind: kind)
         activeLLM = nil
         activeLoadedModelKind = nil
 
@@ -521,7 +521,7 @@ final class TextCleanupManager: ObservableObject, TextCleaningManaging {
     }
 
     private func waitForActiveLoad() async {
-        while state == .loadingModel {
+        while case .loadingModel = state {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
     }
