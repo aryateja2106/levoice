@@ -1306,6 +1306,14 @@ struct SettingsView: View {
 
     private var pepperChatSection: some View {
         VStack(alignment: .leading, spacing: 24) {
+            SettingsCard("Availability") {
+                Toggle("Enable Pepper Chat", isOn: $appState.pepperChatEnabled)
+
+                Text("When disabled, Pepper Chat stays out of the menu bar and its shortcut will not start new chats.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             SettingsCard("Shortcut") {
                 ShortcutRecorderView(
                     title: "Pepper Chat (hold to speak)",

@@ -68,6 +68,11 @@ class AppState: ObservableObject {
     @AppStorage("preferredLanguage") var preferredLanguage: String = "auto"
     @AppStorage("pepperChatHost") var pepperChatHost: String = "https://api.zo.computer"
     @AppStorage("pepperChatApiKey") var pepperChatApiKey: String = ""
+    @AppStorage("pepperChatEnabled") var pepperChatEnabled: Bool = false {
+        didSet {
+            hotkeyMonitor.updateBindings(shortcutBindings)
+        }
+    }
     @AppStorage("pepperChatIncludeScreenContext") var pepperChatIncludeScreenContext: Bool = true
     @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
     @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
@@ -149,6 +154,7 @@ class AppState: ObservableObject {
     private static let postPasteLearningEnabledDefaultsKey = "postPasteLearningEnabled"
     private static let ignoreOtherSpeakersDefaultsKey = "ignoreOtherSpeakers"
     private static let playSoundsDefaultsKey = "playSounds"
+    private static let pepperChatEnabledDefaultsKey = "pepperChatEnabled"
     private static let emptyTranscriptionCancelThresholdSampleCount = 8_000 // ~0.5 seconds — show "no sound" hint for almost all failed recordings
     private static let speechModelErrorPrefix = "Failed to load speech model: "
 
@@ -240,6 +246,9 @@ class AppState: ObservableObject {
             self.playSounds = true
         } else {
             self.playSounds = cleanupSettingsDefaults.bool(forKey: Self.playSoundsDefaultsKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.pepperChatEnabledDefaultsKey) == nil {
+            pepperChatEnabled = !(UserDefaults.standard.string(forKey: "pepperChatApiKey") ?? "").isEmpty
         }
         self.transcriber = SpeechTranscriber(modelManager: modelManager)
         self.textCleaner = TextCleaner(
@@ -834,13 +843,14 @@ class AppState: ObservableObject {
     }
 
     func showPepperChat() {
+        guard pepperChatEnabled else { return }
         pepperChatWindowController.show(session: pepperChatSession)
     }
 
     private var pepperChatRecorder: AudioRecorder?
 
     func beginPepperChatRecording() {
-        guard !pepperChatApiKey.isEmpty else { return }
+        guard pepperChatEnabled, !pepperChatApiKey.isEmpty else { return }
         // Clear previous state so new recording takes over
         pepperChatSession.isReviewingContext = false
         pepperChatSession.capturedCommand = nil
@@ -860,6 +870,7 @@ class AppState: ObservableObject {
         guard let recorder = pepperChatRecorder else { return }
         pepperChatSession.isRecording = false
         pepperChatRecorder = nil
+        hotkeyMonitor.updateBindings(shortcutBindings)
         soundEffects.playStop()
         debugLogStore.record(category: .hotkey, message: "Pepper Chat recording stopped.")
 
@@ -969,11 +980,16 @@ class AppState: ObservableObject {
     }
 
     private var shortcutBindings: [ChordAction: KeyChord] {
-        [
+        var bindings: [ChordAction: KeyChord] = [
             .pushToTalk: pushToTalkChord,
-            .toggleToTalk: toggleToTalkChord,
-            .pepperChat: pepperChatChord
+            .toggleToTalk: toggleToTalkChord
         ]
+
+        if pepperChatEnabled || pepperChatRecorder != nil {
+            bindings[.pepperChat] = pepperChatChord
+        }
+
+        return bindings
     }
 
     private func persistShortcutBindingsIfNeeded() {

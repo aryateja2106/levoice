@@ -12,8 +12,10 @@ struct MenuBarView: View {
                 appState.showSettings()
             }
 
-            Button("Pepper Chat...") {
-                appState.showPepperChat()
+            if appState.pepperChatEnabled {
+                Button("Pepper Chat...") {
+                    appState.showPepperChat()
+                }
             }
 
             Button("Debug Log...") {
