@@ -179,7 +179,7 @@ final class PepperChatSession: ObservableObject {
         let promptText: String
         switch meeting.appName {
         case "YouTube", "Vimeo", "Twitch", "Loom", "Netflix", "Dailymotion":
-            promptText = "I see you're watching something on **\(meeting.appName)**. Want me to transcribe it?"
+            promptText = "Looks like you're watching a video on **\(meeting.appName)**. Want me to create notes and transcribe it?"
         default:
             promptText = "Looks like you're on a **\(meeting.appName)** call. Want me to transcribe it?"
         }
