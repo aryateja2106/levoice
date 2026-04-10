@@ -25,6 +25,8 @@ struct ContextBubbleView: View {
     @ObservedObject var session: PepperChatSession
     var onMinimize: () -> Void
     var onSendToZo: (String, String?) -> Void
+    var onSendToTrello: ((String, String?) -> Void)?
+    var isTrelloConfigured: Bool
     var onCopyBundle: (String) -> Void
     var onOpenInMeetings: ((URL) -> Void)?
 
@@ -46,7 +48,8 @@ struct ContextBubbleView: View {
     @State private var removedContextKeys: Set<String> = []
     @State private var showScreenshotPreview = false
     @State private var selectedActionIndex: Int = 0
-    private let actionCount = 2 // Send to Zo, Copy Bundle
+    @State private var contextKeyMonitor: Any?
+    private var actionCount: Int { isTrelloConfigured ? 3 : 2 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -227,9 +230,9 @@ struct ContextBubbleView: View {
             HStack(alignment: .top) {
                 PepperLogo(size: 28)
                 Text(command)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.white)
-                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button(action: onMinimize) {
                     Image(systemName: "xmark")
@@ -254,29 +257,45 @@ struct ContextBubbleView: View {
                 .padding(.top, 8)
         }
         .onAppear {
-            // Set initial selection based on command
             let action = detectDefaultAction(from: command)
-            selectedActionIndex = action == .copy ? 1 : 0
-        }
-        .onKeyPress(.leftArrow) {
-            selectedActionIndex = max(0, selectedActionIndex - 1)
-            return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            selectedActionIndex = min(actionCount - 1, selectedActionIndex + 1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            if selectedActionIndex == 0 {
-                sendToZo(command: command, screenContext: screenContext)
-            } else {
-                copyBundle(command: command, screenContext: screenContext)
+            switch action {
+            case .zo, .none: selectedActionIndex = 0
+            case .trello: selectedActionIndex = isTrelloConfigured ? 1 : 0
+            case .copy: selectedActionIndex = isTrelloConfigured ? 2 : 1
             }
-            return .handled
         }
-        .onKeyPress(.escape) {
-            onMinimize()
-            return .handled
+        .onAppear {
+            contextKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+                switch event.keyCode {
+                case 123: // left arrow
+                    selectedActionIndex = max(0, selectedActionIndex - 1)
+                    return nil
+                case 124: // right arrow
+                    selectedActionIndex = min(actionCount - 1, selectedActionIndex + 1)
+                    return nil
+                case 36: // return
+                    if selectedActionIndex == 0 {
+                        sendToZo(command: command, screenContext: screenContext)
+                    } else if selectedActionIndex == 1 && isTrelloConfigured {
+                        onSendToTrello?(command, screenContext)
+                        onMinimize()
+                    } else {
+                        copyBundle(command: command, screenContext: screenContext)
+                    }
+                    return nil
+                case 53: // escape
+                    onMinimize()
+                    return nil
+                default:
+                    return event
+                }
+            }
+        }
+        .onDisappear {
+            if let monitor = contextKeyMonitor {
+                NSEvent.removeMonitor(monitor)
+                contextKeyMonitor = nil
+            }
         }
     }
 
@@ -293,39 +312,29 @@ struct ContextBubbleView: View {
             }
             .padding(.horizontal, 20)
 
-            // Screenshot thumbnail
-            if let screenshot = session.capturedScreenshot {
-                Button(action: { showScreenshotPreview.toggle() }) {
-                    HStack(spacing: 10) {
-                        Image(nsImage: screenshot)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 60, height: 40)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1)))
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Screenshot captured")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                            Text("Click to preview")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.4))
+            // Screenshot thumbnails (multiple if user switched windows)
+            if !session.capturedScreenshots.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(session.capturedScreenshots.enumerated()), id: \.offset) { index, screenshot in
+                            VStack(spacing: 4) {
+                                Image(nsImage: screenshot)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 80, height: 50)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.1)))
+                                if index < session.capturedAppNames.count {
+                                    Text(session.capturedAppNames[index])
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.white.opacity(0.4))
+                                }
+                            }
                         }
                     }
                     .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20)
-                .popover(isPresented: $showScreenshotPreview) {
-                    Image(nsImage: screenshot)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 500, maxHeight: 400)
-                        .padding(8)
-                }
+                .padding(.horizontal, 12)
             }
 
             // Context chips
@@ -624,57 +633,49 @@ struct ContextBubbleView: View {
 
     // MARK: - Action Buttons
 
+    private func actionButton(index: Int, icon: some View, label: String, action: @escaping () -> Void) -> some View {
+        let isSelected = selectedActionIndex == index
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                icon
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(isSelected ? .black : .white.opacity(0.8))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.orange : Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.orange : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private func actionButtons(command: String, screenContext: String?) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Button(action: {
+                actionButton(index: 0, icon: PepperLogo(size: 14), label: "Send to Zo") {
                     sendToZo(command: command, screenContext: screenContext)
-                }) {
-                    HStack(spacing: 5) {
-                        PepperLogo(size: 14)
-                        Text("Send to Zo")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundColor(selectedActionIndex == 0 ? .black : .white.opacity(0.8))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(selectedActionIndex == 0 ? Color.orange : Color.white.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(selectedActionIndex == 0 ? Color.orange : Color.clear, lineWidth: 2)
-                    )
                 }
-                .buttonStyle(.plain)
 
-                Button(action: {
-                    copyBundle(command: command, screenContext: screenContext)
-                }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
-                        Text("Copy Bundle")
-                            .font(.system(size: 12, weight: .semibold))
+                if isTrelloConfigured {
+                    actionButton(index: 1, icon: Image(systemName: "list.bullet.rectangle").font(.system(size: 11)), label: "Add to Trello") {
+                        onSendToTrello?(command, screenContext)
+                        onMinimize()
                     }
-                    .foregroundColor(selectedActionIndex == 1 ? .black : .white.opacity(0.8))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(selectedActionIndex == 1 ? Color.orange : Color.white.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(selectedActionIndex == 1 ? Color.orange : Color.clear, lineWidth: 2)
-                    )
                 }
-                .buttonStyle(.plain)
+
+                actionButton(index: isTrelloConfigured ? 2 : 1, icon: Image(systemName: "doc.on.doc").font(.system(size: 11)), label: "Copy") {
+                    copyBundle(command: command, screenContext: screenContext)
+                }
             }
 
-            // Cancel / Escape hint
-            Text("Cancel · esc")
+            Text("← → to switch · ⏎ to confirm · esc to cancel")
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.3))
         }
@@ -683,11 +684,12 @@ struct ContextBubbleView: View {
     // MARK: - Helpers
 
     private enum DefaultAction {
-        case zo, copy, none
+        case zo, trello, copy, none
     }
 
     private func detectDefaultAction(from command: String) -> DefaultAction {
         let lower = command.lowercased()
+        if lower.contains("trello") || lower.contains("card") || lower.contains("task") { return .trello }
         if lower.contains("copy") || lower.contains("clipboard") { return .copy }
         if lower.contains("zo") || lower.contains("send") || lower.contains("ask") { return .zo }
         return .zo // default to Zo

@@ -69,6 +69,10 @@ class AppState: ObservableObject {
     @AppStorage("pepperChatHost") var pepperChatHost: String = "https://api.zo.computer"
     @AppStorage("pepperChatApiKey") var pepperChatApiKey: String = ""
     @AppStorage("pepperChatIncludeScreenContext") var pepperChatIncludeScreenContext: Bool = true
+    @AppStorage("trelloApiKey") var trelloApiKey: String = ""
+    @AppStorage("trelloToken") var trelloToken: String = ""
+    @AppStorage("trelloDefaultListId") var trelloDefaultListId: String = ""
+    @Published var trelloBoards: [TrelloBoard] = []
     @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
     @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
     @AppStorage("meetingSummaryPrompt") var meetingSummaryPrompt: String = MeetingSummaryGenerator.defaultPrompt
@@ -359,6 +363,49 @@ class AppState: ObservableObject {
             if needsAccessibility || needsInputMonitoring {
                 showSettings()
             }
+        }
+
+        // Wire up Trello
+        pepperChatWindowController.isTrelloConfigured = { [weak self] in
+            guard let self = self else { return false }
+            return !self.trelloApiKey.isEmpty && !self.trelloToken.isEmpty
+        }
+        pepperChatWindowController.onSendToTrello = { [weak self] command, context in
+            guard let self = self,
+                  !self.trelloApiKey.isEmpty,
+                  !self.trelloToken.isEmpty else { return }
+
+            // Parse the spoken command into structured Trello action
+            let parsed = TrelloCommandParser.parse(command)
+            self.debugLogStore.record(category: .model, message: "Trello parsed: title=\"\(parsed.cardTitle)\" board=\"\(parsed.boardName ?? "auto")\" list=\"\(parsed.listName ?? "auto")\"")
+
+            let backend = TrelloBackend(apiKey: self.trelloApiKey, token: self.trelloToken)
+            Task {
+                do {
+                    // Find the right list — use parsed board/list names if spoken
+                    let searchTerm = [parsed.boardName, parsed.listName].compactMap { $0 }.joined(separator: " ")
+                    let listId = TrelloBackend.findList(
+                        matching: searchTerm.isEmpty ? command : searchTerm,
+                        in: self.trelloBoards,
+                        defaultListId: self.trelloDefaultListId
+                    )
+                    guard let listId else {
+                        self.debugLogStore.record(category: .model, message: "Trello: no list found. Fetch boards in Settings first.")
+                        return
+                    }
+
+                    let description = context ?? ""
+                    let cardURL = try await backend.createCard(name: parsed.cardTitle, description: description, listId: listId)
+                    self.debugLogStore.record(category: .model, message: "Trello card created: \"\(parsed.cardTitle)\" → \(cardURL ?? "unknown")")
+                } catch {
+                    self.debugLogStore.record(category: .model, message: "Trello error: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        // Fetch Trello boards on startup if configured
+        if !trelloApiKey.isEmpty && !trelloToken.isEmpty {
+            Task { await fetchTrelloBoards() }
         }
 
         // Wire up "save as note" to open in meetings view
@@ -838,6 +885,8 @@ class AppState: ObservableObject {
     }
 
     private var pepperChatRecorder: AudioRecorder?
+    private var contextCaptureTimer: Timer?
+    private var lastCapturedAppBundleId: String?
 
     func beginPepperChatRecording() {
         guard !pepperChatApiKey.isEmpty else { return }
@@ -845,7 +894,23 @@ class AppState: ObservableObject {
         pepperChatSession.isReviewingContext = false
         pepperChatSession.capturedCommand = nil
         pepperChatSession.capturedScreenContext = nil
-        pepperChatSession.capturedScreenshot = nil
+        pepperChatSession.capturedScreenshots = []
+        pepperChatSession.capturedContextTexts = []
+        pepperChatSession.capturedAppNames = []
+        pepperChatSession.preCapturedScreenContexts = []
+
+        // Capture initial screenshot + OCR before the bubble appears
+        if pepperChatIncludeScreenContext {
+            captureContextForBundler()
+            // Start monitoring for window switches during recording
+            contextCaptureTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self, self.pepperChatRecorder != nil else { return }
+                Task { @MainActor in
+                    self.captureContextForBundler()
+                }
+            }
+        }
+
         let recorder = AudioRecorder()
         recorder.prewarm()
         try? recorder.startRecording()
@@ -856,10 +921,41 @@ class AppState: ObservableObject {
         debugLogStore.record(category: .hotkey, message: "Pepper Chat recording started.")
     }
 
+    /// Capture the current frontmost window's context (if it's a new window)
+    private func captureContextForBundler() {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleId = app.bundleIdentifier,
+              bundleId != Bundle.main.bundleIdentifier else { return } // skip our own app
+
+        // Only capture if we switched to a different app
+        guard bundleId != lastCapturedAppBundleId else { return }
+        lastCapturedAppBundleId = bundleId
+
+        let appName = app.localizedName ?? "Unknown"
+        pepperChatSession.capturedAppNames.append(appName)
+
+        Task {
+            // Screenshot
+            if let cgImage = try? await WindowCaptureService().captureFrontmostWindowImage() {
+                let screenshot = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width / 2, height: cgImage.height / 2))
+                pepperChatSession.capturedScreenshots.append(screenshot)
+            }
+            // OCR
+            let ocrResult = await frontmostWindowOCRService.captureContext(customWords: [])
+            if let text = ocrResult?.windowContents {
+                pepperChatSession.preCapturedScreenContexts.append(text)
+            }
+            debugLogStore.record(category: .ocr, message: "Context bundler captured: \(appName)")
+        }
+    }
+
     func endPepperChatRecording() {
         guard let recorder = pepperChatRecorder else { return }
         pepperChatSession.isRecording = false
         pepperChatRecorder = nil
+        contextCaptureTimer?.invalidate()
+        contextCaptureTimer = nil
+        lastCapturedAppBundleId = nil
         soundEffects.playStop()
         debugLogStore.record(category: .hotkey, message: "Pepper Chat recording stopped.")
 
@@ -922,6 +1018,17 @@ class AppState: ObservableObject {
 
     func showOrCreateMeetingWindow() {
         meetingTranscriptWindowController.show()
+    }
+
+    func fetchTrelloBoards() async {
+        guard !trelloApiKey.isEmpty, !trelloToken.isEmpty else { return }
+        let backend = TrelloBackend(apiKey: trelloApiKey, token: trelloToken)
+        do {
+            trelloBoards = try await backend.fetchBoardsAndLists()
+            debugLogStore.record(category: .model, message: "Trello: fetched \(trelloBoards.count) boards with \(trelloBoards.flatMap(\.lists).count) lists")
+        } catch {
+            debugLogStore.record(category: .model, message: "Trello fetch failed: \(error.localizedDescription)")
+        }
     }
 
     func generateMeetingSummary(for transcript: MeetingTranscript) async {

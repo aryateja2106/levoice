@@ -34,8 +34,12 @@ final class PepperChatSession: ObservableObject {
     @Published var pendingScreenContext: String?
     @Published var capturedCommand: String?
     @Published var capturedScreenContext: String?
-    @Published var capturedScreenshot: NSImage?
+    @Published var capturedScreenshots: [NSImage] = []
+    @Published var capturedContextTexts: [String] = []
+    @Published var capturedAppNames: [String] = []
     @Published var isReviewingContext = false
+    /// Screen contexts captured during recording (one per window switch)
+    var preCapturedScreenContexts: [String] = []
 
     private let transcriber: SpeechTranscriber
     private let ocrService: FrontmostWindowOCRService
@@ -87,22 +91,17 @@ final class PepperChatSession: ObservableObject {
             transcription = rawTranscription
         }
 
-        // Capture screen context + screenshot
-        var screenContext: String?
-        var screenshot: NSImage?
-        if includeScreenContext {
-            // Capture screenshot first, then OCR
-            if let cgImage = try? await WindowCaptureService().captureFrontmostWindowImage() {
-                screenshot = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width / 2, height: cgImage.height / 2))
-            }
-            let ocrResult = await ocrService.captureContext(customWords: [])
-            screenContext = ocrResult?.windowContents
-        }
+        // Use pre-captured contexts (captured during recording, one per window)
+        let allContexts = preCapturedScreenContexts
+        preCapturedScreenContexts = []
+
+        // Combine all captured contexts into one
+        let screenContext = allContexts.isEmpty ? nil : allContexts.joined(separator: "\n\n---\n\n")
 
         // Pause for context review — user chooses action from the bubble
         capturedCommand = transcription
         capturedScreenContext = screenContext
-        capturedScreenshot = screenshot
+        capturedContextTexts = allContexts
         isReviewingContext = true
     }
 
@@ -176,7 +175,9 @@ final class PepperChatSession: ObservableObject {
         messages.removeAll(where: { $0.action == nil }) // keep action messages (meeting prompts)
         capturedCommand = nil
         capturedScreenContext = nil
-        capturedScreenshot = nil
+        capturedScreenshots = []
+        capturedContextTexts = []
+        capturedAppNames = []
         isReviewingContext = false
     }
 

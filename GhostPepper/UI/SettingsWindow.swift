@@ -106,7 +106,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Corrections"
         case .models: "Models"
         case .transcriptionLab: "History"
-        case .pepperChat: "Pepper Chat"
+        case .pepperChat: "Context Bundler"
         case .meetingTranscript: "Meeting Transcript"
         case .general: "General"
         }
@@ -119,7 +119,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Words and replacements Ghost Pepper should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
         case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
-        case .pepperChat: "Voice-to-AI assistant with streaming responses."
+        case .pepperChat: "Capture screen context and send to Zo, Trello, or clipboard."
         case .meetingTranscript: "Auto-detect calls and transcribe meetings locally."
         case .general: "Startup behavior and app-wide preferences."
         }
@@ -1308,7 +1308,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 24) {
             SettingsCard("Shortcut") {
                 ShortcutRecorderView(
-                    title: "Pepper Chat (hold to speak)",
+                    title: "Context Bundler (hold to speak)",
                     chord: appState.pepperChatChord,
                     onRecordingStateChange: appState.setShortcutCaptureActive
                 ) { chord in
@@ -1369,6 +1369,110 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
                                 .lineLimit(2)
+                        }
+                    }
+                }
+            }
+
+            SettingsCard("Trello (optional)") {
+                VStack(alignment: .leading, spacing: 18) {
+                    if appState.trelloToken.isEmpty {
+                        // Not connected
+                        Text("Connect your Trello account to add cards directly from the Context Bundler. Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) → click **New** → copy the API key.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        SettingsField("App Key") {
+                            TextField("Paste your Trello API key", text: $appState.trelloApiKey)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 320)
+                        }
+
+                        Button(action: {
+                            let authURL = "https://trello.com/1/authorize?key=\(appState.trelloApiKey)&name=Ghost%20Pepper&scope=read,write&response_type=token&expiration=never"
+                            if let url = URL(string: authURL) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "link")
+                                Text("Connect Trello")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.blue)
+                        .disabled(appState.trelloApiKey.isEmpty)
+
+                        Text("After clicking Allow on Trello's page, paste the token below:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        SettingsField("Token") {
+                            SecureField("Paste your Trello token here", text: $appState.trelloToken)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 320)
+                        }
+                    } else {
+                        // Connected
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.callout)
+                            Text("Trello connected")
+                                .font(.callout.weight(.medium))
+                            Spacer()
+                            Button("Refresh boards") {
+                                Task { await appState.fetchTrelloBoards() }
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.caption)
+                            Button("Disconnect") {
+                                appState.trelloToken = ""
+                                appState.trelloDefaultListId = ""
+                                appState.trelloBoards = []
+                            }
+                            .buttonStyle(.bordered)
+                            .font(.caption)
+                        }
+
+                        // Default list picker
+                        if !appState.trelloBoards.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Default list (used when you don't specify a board/list name):")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Default list", selection: $appState.trelloDefaultListId) {
+                                    Text("Auto (first list)").tag("")
+                                    ForEach(appState.trelloBoards) { board in
+                                        ForEach(board.lists) { list in
+                                            Text("\(board.name) → \(list.name)").tag(list.id)
+                                        }
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(maxWidth: 400)
+                            }
+
+                            Text("You can also say a board or list name when speaking — Ghost Pepper will match it automatically. \(appState.trelloBoards.count) boards, \(appState.trelloBoards.flatMap(\.lists).count) lists loaded.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Button("Fetch boards & lists") {
+                                Task { await appState.fetchTrelloBoards() }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+
+                    if !appState.trelloToken.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                            Text("\"Add to Trello\" will appear in the Context Bundler")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
