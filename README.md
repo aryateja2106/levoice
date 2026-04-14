@@ -1,10 +1,26 @@
+<div align="center">
+
 <img src="./app-icon.png" width="80" alt="Ghost Pepper">
 
 # Ghost Pepper
 
 **100% private** on-device voice models for speech-to-text and meeting transcription on macOS. No cloud APIs, no data leaves your machine.
 
-**[Download the latest release](https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg)** — macOS 14.0+, Apple Silicon (M1+)
+<a href="https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg">
+  <img src="https://img.shields.io/badge/Download_for_Mac-FF6600?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" height="40">
+</a>
+
+macOS 14.0+ · Apple Silicon (M1+) · Free & open source
+
+[![GitHub stars](https://img.shields.io/github/stars/matthartman/ghost-pepper?style=social)](https://github.com/matthartman/ghost-pepper)
+&nbsp;
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+&nbsp;
+![100% Local](https://img.shields.io/badge/100%25-Local-FF6600)
+&nbsp;
+![50+ Languages](https://img.shields.io/badge/50%2B-Languages-blue)
+
+</div>
 
 ## Features
 
