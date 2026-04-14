@@ -75,6 +75,7 @@ class AppState: ObservableObject {
     @Published var trelloBoards: [TrelloBoard] = []
     @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
     @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
+    @AppStorage("meetingWindowFloatsWhileRecording") var meetingWindowFloatsWhileRecording: Bool = true
     @AppStorage("meetingSummaryPrompt") var meetingSummaryPrompt: String = MeetingSummaryGenerator.defaultPrompt
     @AppStorage("pauseMediaWhileRecording") var pauseMediaWhileRecording: Bool = true
     @Published private(set) var pushToTalkChord: KeyChord
@@ -827,6 +828,9 @@ class AppState: ObservableObject {
     private let pepperChatWindowController = PepperChatWindowController()
     private lazy var meetingTranscriptWindowController: MeetingTranscriptWindowController = {
         let controller = MeetingTranscriptWindowController()
+        controller.shouldFloatWhileRecording = { [weak self] in
+            self?.meetingWindowFloatsWhileRecording ?? true
+        }
         controller.onOpenSettings = { [weak self] in
             self?.showSettings()
         }
@@ -1058,6 +1062,10 @@ class AppState: ObservableObject {
 
     func showOrCreateMeetingWindow() {
         meetingTranscriptWindowController.show()
+    }
+
+    func refreshMeetingTranscriptWindowPresentation() {
+        meetingTranscriptWindowController.refreshPresentation()
     }
 
     func fetchTrelloBoards() async {
