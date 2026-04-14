@@ -27,6 +27,7 @@ Resources/models/
 docs
 !docs/
 docs/*
+!docs/index.html
 !docs/superpowers/
 docs/superpowers/*
 !docs/superpowers/specs/
