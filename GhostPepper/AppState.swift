@@ -80,6 +80,7 @@ class AppState: ObservableObject {
     @Published var trelloBoards: [TrelloBoard] = []
     @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
     @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
+    @AppStorage("meetingWindowFloatsWhileRecording") var meetingWindowFloatsWhileRecording: Bool = true
     @AppStorage("meetingSummaryPrompt") var meetingSummaryPrompt: String = MeetingSummaryGenerator.defaultPrompt
     @AppStorage("pauseMediaWhileRecording") var pauseMediaWhileRecording: Bool = true
     @Published private(set) var pushToTalkChord: KeyChord
@@ -836,16 +837,18 @@ class AppState: ObservableObject {
     private let pepperChatWindowController = PepperChatWindowController()
     private lazy var meetingTranscriptWindowController: MeetingTranscriptWindowController = {
         let controller = MeetingTranscriptWindowController()
+        controller.shouldFloatWhileRecording = { [weak self] in
+            self?.meetingWindowFloatsWhileRecording ?? true
+        }
         controller.onOpenSettings = { [weak self] in
             self?.showSettings()
         }
-        controller.onStartRecording = { [weak self] name -> MeetingSession? in
-            self?.createMeetingSession(name: name)
+        controller.onStartRecording = { [weak self] name, detectedMeeting -> MeetingSession? in
+            self?.createMeetingSession(name: name, detectedMeeting: detectedMeeting)
         }
         controller.onStopRecording = { [weak self] session in
             Task {
-                await session.stop()
-                self?.debugLogStore.record(category: .model, message: "Meeting stopped: \(session.transcript.meetingName)")
+                await self?.finishMeetingSession(session, logPrefix: "Meeting stopped")
             }
         }
         controller.onGenerateSummary = { [weak self] transcript in
@@ -1018,7 +1021,7 @@ class AppState: ObservableObject {
 
     /// Creates a new MeetingSession, starts recording, and returns it.
     /// Called by the window state when the user clicks "+" or auto-detection triggers.
-    func createMeetingSession(name: String) -> MeetingSession? {
+    func createMeetingSession(name: String, detectedMeeting: DetectedMeeting? = nil) -> MeetingSession? {
         guard PermissionChecker.hasScreenRecordingPermission() else {
             PermissionChecker.requestScreenRecordingPermission()
             return nil
@@ -1027,9 +1030,15 @@ class AppState: ObservableObject {
         let saveDir = MeetingTranscriptSettings.effectiveSaveDirectory()
         let session = MeetingSession(
             meetingName: name,
+            detectedMeeting: detectedMeeting,
             transcriber: transcriber,
             saveDirectory: saveDir
         )
+        session.onAutoStopRequested = { [weak self] session in
+            Task {
+                await self?.finishMeetingSession(session, logPrefix: "Meeting transcription auto-stopped")
+            }
+        }
         activeMeetingSession = session
 
         Task {
@@ -1045,9 +1054,19 @@ class AppState: ObservableObject {
         return session
     }
 
-    func startMeetingTranscription(meetingName: String, skipConsent: Bool = false, sourceURL: String? = nil) {
+    func startMeetingTranscription(
+        meetingName: String,
+        skipConsent: Bool = false,
+        sourceURL: String? = nil,
+        detectedMeeting: DetectedMeeting? = nil
+    ) {
         meetingTranscriptWindowController.show()
-        meetingTranscriptWindowController.requestRecording(name: meetingName, skipConsent: skipConsent, sourceURL: sourceURL)
+        meetingTranscriptWindowController.requestRecording(
+            name: meetingName,
+            skipConsent: skipConsent,
+            sourceURL: sourceURL,
+            detectedMeeting: detectedMeeting
+        )
     }
 
     func showMeetingTranscriptWindow() {
@@ -1056,6 +1075,10 @@ class AppState: ObservableObject {
 
     func showOrCreateMeetingWindow() {
         meetingTranscriptWindowController.show()
+    }
+
+    func refreshMeetingTranscriptWindowPresentation() {
+        meetingTranscriptWindowController.refreshPresentation()
     }
 
     func fetchTrelloBoards() async {
@@ -1086,9 +1109,7 @@ class AppState: ObservableObject {
     func stopMeetingTranscription() {
         guard let session = activeMeetingSession else { return }
         Task {
-            await session.stop()
-            debugLogStore.record(category: .model, message: "Meeting transcription stopped: \(session.transcript.meetingName)")
-            activeMeetingSession = nil
+            await finishMeetingSession(session, logPrefix: "Meeting transcription stopped")
         }
     }
 
@@ -1104,13 +1125,22 @@ class AppState: ObservableObject {
                 self?.startMeetingTranscription(
                     meetingName: meeting.suggestedName,
                     skipConsent: meeting.isVideo,
-                    sourceURL: meeting.sourceURL
+                    sourceURL: meeting.sourceURL,
+                    detectedMeeting: meeting
                 )
             }
             self.pepperChatWindowController.show(session: self.pepperChatSession)
         }
 
         meetingDetector.start()
+    }
+
+    private func finishMeetingSession(_ session: MeetingSession, logPrefix: String) async {
+        await session.stop()
+        if activeMeetingSession === session {
+            activeMeetingSession = nil
+        }
+        debugLogStore.record(category: .model, message: "\(logPrefix): \(session.transcript.meetingName)")
     }
 
     private var shortcutBindings: [ChordAction: KeyChord] {

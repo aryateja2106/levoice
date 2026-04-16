@@ -1529,6 +1529,18 @@ struct SettingsView: View {
                         Text("Monitors for Zoom, Teams, FaceTime, Meet, and other call apps. When detected, the pepper character will ask if you'd like to transcribe.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        Toggle(
+                            "Float the meeting window while recording",
+                            isOn: $appState.meetingWindowFloatsWhileRecording
+                        )
+                        .onChange(of: appState.meetingWindowFloatsWhileRecording) { _, _ in
+                            appState.refreshMeetingTranscriptWindowPresentation()
+                        }
+
+                        Text("Keeps the current meeting window above other windows only while an active meeting is recording.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
