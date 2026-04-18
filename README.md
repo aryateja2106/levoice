@@ -1,124 +1,88 @@
 <div align="center">
 
-<img src="./app-icon.png" width="80" alt="LeVoice">
+<img src="./app-icon.png" width="96" alt="LeVoice">
 
 # LeVoice
 
-**100% private** on-device voice models for speech-to-text and meeting transcription on macOS. No cloud APIs, no data leaves your machine.
+**Less voice, more action.**
+100% on-device voice-to-text and macOS hotkey utilities. No cloud APIs, no telemetry, no data leaves your Mac.
 
-<a href="https://github.com/lesearch-ai/levoice/releases/latest/download/LeVoice.dmg">
-  <img src="https://img.shields.io/badge/Download_for_Mac-FF6600?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" height="40">
+<a href="https://github.com/aryateja2106/levoice/releases/latest/download/LeVoice.dmg">
+  <img src="https://img.shields.io/badge/Download_for_Mac-F97316?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" height="40">
 </a>
 
-macOS 14.0+ · Apple Silicon (M1+) · Free & open source
+macOS 14.0+ · Apple Silicon · MIT licensed
 
-[![GitHub stars](https://img.shields.io/github/stars/lesearch-ai/levoice?style=social)](https://github.com/lesearch-ai/levoice)
+[![GitHub stars](https://img.shields.io/github/stars/aryateja2106/levoice?style=social)](https://github.com/aryateja2106/levoice)
 &nbsp;
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 &nbsp;
-![100% Local](https://img.shields.io/badge/100%25-Local-FF6600)
-&nbsp;
-![50+ Languages](https://img.shields.io/badge/50%2B-Languages-blue)
+![100% Local](https://img.shields.io/badge/100%25-Local-F97316)
 
 </div>
 
 ## Features
 
-- **Hold Control to talk** — release to transcribe and paste into any text field
-- **Meeting transcription** — record calls with notes, transcript, and AI-generated summaries saved as markdown
-- **Runs entirely on your Mac** — models run locally via Apple Silicon, nothing is sent anywhere
-- **Smart cleanup** — local LLM removes filler words and handles self-corrections
-- **Menu bar app** — lives in your menu bar, no dock icon, launches at login
-- **Customizable** — edit the cleanup prompt, pick your mic, toggle features on/off
+- **Hold to talk** — press a chord, speak, release, text pastes into any focused field
+- **Local speech models** — Whisper / FluidAudio Parakeet, bundled and cached on your Mac
+- **Local cleanup** — small Qwen LLM removes filler words and fixes self-corrections
+- **Menu-bar only** — no dock icon, no window, just there when you need it
+- **Customizable chords** — rebind push-to-talk and toggle-to-record to any key combo
+- **Signed + notarized** — installs clean through Gatekeeper, no right-click workaround
+
+## Install
+
+1. Download [LeVoice.dmg](https://github.com/aryateja2106/levoice/releases/latest/download/LeVoice.dmg) from the latest release
+2. Open it, drag **LeVoice** into **Applications**
+3. Launch from Spotlight (`⌘Space` → "LeVoice")
+4. Grant **Microphone**, **Accessibility**, and **Input Monitoring** on first launch (System Settings → Privacy & Security)
+
+## Default shortcuts
+
+| Action | Keys |
+|---|---|
+| Hold to record | Right ⌘ + Right ⌥ (hold) |
+| Toggle recording | Right ⌘ + Right ⌥ + Space |
+
+Change in **Settings → Recording → Shortcuts**.
 
 ## How it works
 
-LeVoice uses open-source models that run entirely on your Mac. Models download automatically and are cached locally.
+LeVoice runs everything on your Mac via Apple Silicon. The first launch downloads a small Whisper model (~100 MB) into `~/Library/Application Support/LeVoice/` and caches it.
 
-### Speech models
-
-| Model | Size | Best for |
-|---|---|---|
-| Whisper tiny.en | ~75 MB | Fastest, English only |
-| **Whisper small.en** (default) | ~466 MB | Best accuracy, English only |
-| Whisper small (multilingual) | ~466 MB | Multi-language support |
-| Parakeet v3 (25 languages) | ~1.4 GB | Multi-language via [FluidAudio](https://github.com/FluidInference/FluidAudio) |
-| Qwen3-ASR 0.6B int8 (50+ languages) | ~900 MB | Highest multilingual quality, macOS 15+ required |
-
-### Cleanup models
-
-| Model | Size | Speed |
-|---|---|---|
-| **Qwen 3.5 0.8B** (default) | ~535 MB | Very fast (~1-2s) |
-| Qwen 3.5 2B | ~1.3 GB | Fast (~4-5s) |
-| Qwen 3.5 4B | ~2.8 GB | Full quality (~5-7s) |
-
-Speech models powered by [WhisperKit](https://github.com/argmaxinc/WhisperKit). Cleanup models powered by [LLM.swift](https://github.com/eastriverlee/LLM.swift). All models served by [Hugging Face](https://huggingface.co/).
-
-## Getting started
-
-**Download the app:**
-1. Download [LeVoice.dmg](https://github.com/lesearch-ai/levoice/releases/latest/download/LeVoice.dmg)
-2. Open the DMG, drag LeVoice to Applications
-3. Grant Microphone and Accessibility permissions when prompted
-4. Hold Control and speak
-
-> **"Apple could not verify" warning?** On macOS Sequoia, you may see a Gatekeeper warning the first time you open the app. Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the LeVoice message. Click **Confirm** in the popup. You only need to do this once.
-
-**Build from source:**
-1. Clone the repo
-2. Open `LeVoice.xcodeproj` in Xcode
-3. Build and run (Cmd+R)
-
-## Permissions
-
-| Permission | Why |
+| Component | Powered by |
 |---|---|
-| Microphone | Record your voice |
-| Accessibility | Global hotkey and paste via simulated keystrokes |
+| Speech-to-text | [WhisperKit](https://github.com/argmaxinc/WhisperKit), [FluidAudio](https://github.com/FluidInference/FluidAudio) |
+| Text cleanup LLM | [LLM.swift](https://github.com/obra/LLM.swift) (llama.cpp) |
+| Model hosting | [Hugging Face](https://huggingface.co/) (download only) |
 
-## Privacy audit
+## Privacy
 
-Every core feature runs 100% on your Mac — verified by AI code review. No trust required, just point Claude at the repo and ask.
+| Feature | What stays on your Mac |
+|---|---|
+| Microphone audio | ✅ Never uploaded |
+| Transcriptions | ✅ Only go to your clipboard / focused text field |
+| LLM cleanup | ✅ Runs via llama.cpp locally |
+| Meeting summaries | ✅ Local LLM, saved as markdown on disk |
+| Telemetry / analytics | ❌ None. No Sentry, Mixpanel, Firebase, or custom pings |
 
-| Feature | Status | What was checked |
-|---|---|---|
-| Speech-to-text | :white_check_mark: Local | WhisperKit/FluidAudio inference, no audio sent anywhere |
-| Text cleanup | :white_check_mark: Local | Qwen LLM runs on-device via LLM.swift |
-| Audio recording | :white_check_mark: Local | AVAudioEngine + ScreenCaptureKit, no streaming |
-| Meeting transcription & storage | :white_check_mark: Local | Chunked transcription, markdown files on disk |
-| Summary generation | :white_check_mark: Local | Local LLM summarization, no cloud API |
-| OCR & screen capture | :white_check_mark: Local | Apple Vision framework, on-device |
-| File storage | :white_check_mark: Local | Markdown to local filesystem, no cloud sync |
-| Analytics & telemetry | :white_check_mark: None | No Firebase, Mixpanel, Sentry, or any tracking SDK |
+The only outbound network calls are one-time model downloads from Hugging Face. See [PRIVACY_AUDIT.md](PRIVACY_AUDIT.md) for the verification prompt.
 
-**Optional cloud features** (disabled by default, require your own API keys): Zo AI chat, Trello integration, Granola meeting import. Model downloads are one-time from Hugging Face.
+## Build from source
 
-> **Verify it yourself:** run `cat PRIVACY_AUDIT.md` in Claude Code and ask it to review the codebase against the audit prompt. The [full audit](PRIVACY_AUDIT.md) includes the exact prompt and detailed file-level results.
+```bash
+brew install xcodegen
+git clone https://github.com/aryateja2106/levoice.git
+cd levoice
+xcodegen generate
+open LeVoice.xcodeproj
+# Cmd+R to build + run
+```
 
-## Good to know
-
-- **Launch at login** is enabled by default on first run. You can toggle it off in Settings.
-- **Everything stays local** — transcription history and recordings are stored on your Mac only. Nothing is sent to the cloud. You can clear history anytime in Settings.
-
-## Acknowledgments
-
-Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), [LLM.swift](https://github.com/eastriverlee/LLM.swift), [Hugging Face](https://huggingface.co/), and [Sparkle](https://sparkle-project.org/).
+To produce a signed DMG: see [RELEASE.md](RELEASE.md).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
 
-## Why "LeVoice"?
-
-All models run locally, no private data leaves your computer. And it's spicy to offer something for free that other apps have raised $80M to build.
-
-## Enterprise / managed devices
-
-LeVoice requires Accessibility permission, which normally needs admin access to grant. On managed devices, IT admins can pre-approve this via an MDM profile (Jamf, Kandji, Mosaic, etc.) using a Privacy Preferences Policy Control (PPPC) payload:
-
-| Field | Value |
-|---|---|
-| Bundle ID | `ai.lesearch.levoice` |
-| Team ID | _(your Apple Developer Team ID — find it at developer.apple.com → Membership)_ |
-| Permission | Accessibility (`com.apple.security.accessibility`) |
+Forked from [matthartman/ghost-pepper](https://github.com/matthartman/ghost-pepper); rebranded and redirected toward a broader "macOS micro-interactions" scope under the LeVoice project.
