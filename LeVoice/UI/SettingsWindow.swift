@@ -513,6 +513,59 @@ struct SettingsView: View {
                 }
             }
 
+            SettingsCard("Hyper Key") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Toggle(
+                        "Remap Caps Lock to Hyper (⌘⌥⌃\(appState.hyperkeySettings.includeShift ? "⇧" : ""))",
+                        isOn: Binding(
+                            get: { appState.hyperkeySettings.enabled },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.enabled = newValue
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    )
+
+                    Toggle(
+                        "Include Shift in Hyper chord",
+                        isOn: Binding(
+                            get: { appState.hyperkeySettings.includeShift },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.includeShift = newValue
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    )
+                    .disabled(!appState.hyperkeySettings.enabled)
+
+                    Picker(
+                        "Quick-tap Caps Lock fires",
+                        selection: Binding(
+                            get: { Int(appState.hyperkeySettings.quickPressKeyCode) },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.quickPressKeyCode = UInt16(newValue)
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    ) {
+                        Text("Escape").tag(53)
+                        Text("Caps Lock (pass through)").tag(57)
+                        Text("No action").tag(-1)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 320)
+                    .disabled(!appState.hyperkeySettings.enabled)
+
+                    Text("While Caps Lock is held, every key you press is sent as Hyper+<key> so Raycast, BetterTouchTool, or any app that listens for \(appState.hyperkeySettings.includeShift ? "⌘⌥⌃⇧" : "⌘⌥⌃") combinations will fire. A quick tap fires the key above instead. Requires Accessibility permission — same as push-to-talk.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             SettingsCard("Input") {
                 VStack(alignment: .leading, spacing: 18) {
                     SettingsField("Microphone") {

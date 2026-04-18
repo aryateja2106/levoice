@@ -570,6 +570,13 @@ private func hotkeyCallback(
         return Unmanaged.passUnretained(event)
     }
 
+    // Skip events synthesised or flag-tagged by HyperkeyManager — those are not real user
+    // chord input, and feeding them to ChordEngine would create a recursive mess where the
+    // injected ⌘⌥⌃ flags look like a fresh hotkey press.
+    if event.getIntegerValueField(.eventSourceUserData) == HyperkeyManager.eventSourceUserDataSentinel {
+        return Unmanaged.passUnretained(event)
+    }
+
     let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(userInfo).takeUnretainedValue()
     monitor.handleEvent(type, event: event)
     return Unmanaged.passUnretained(event)

@@ -102,6 +102,14 @@ class AppState: ObservableObject {
         self?.pauseMediaWhileRecording ?? true
     })
     let hotkeyMonitor: HotkeyMonitoring
+    let hyperkeyManager: HyperkeyManager
+    private let hyperkeySettingsStore: HyperkeySettingsStore
+    @Published var hyperkeySettings: HyperkeySettings {
+        didSet {
+            hyperkeySettingsStore.save(hyperkeySettings)
+            hyperkeyManager.updateSettings(hyperkeySettings)
+        }
+    }
     let overlay = RecordingOverlayController()
     let textCleanupManager: TextCleanupManager
     let frontmostWindowOCRService: FrontmostWindowOCRService
@@ -185,6 +193,11 @@ class AppState: ObservableObject {
     ) {
         self.hotkeyMonitor = hotkeyMonitor
         self.chordBindingStore = chordBindingStore
+        let hyperkeyStore = HyperkeySettingsStore()
+        self.hyperkeySettingsStore = hyperkeyStore
+        let loadedHyperkeySettings = hyperkeyStore.load()
+        self.hyperkeySettings = loadedHyperkeySettings
+        self.hyperkeyManager = HyperkeyManager(settings: loadedHyperkeySettings)
         self.cleanupSettingsDefaults = cleanupSettingsDefaults
         self.audioRecorder = audioRecorder
         self.textPaster = textPaster
@@ -460,6 +473,8 @@ class AppState: ObservableObject {
             status = .ready
             errorMessage = nil
             debugLogStore.record(category: .hotkey, message: "Hotkey monitor is ready.")
+            hyperkeyManager.debugLogger = debugLogStore.record
+            hyperkeyManager.start()
         } else {
             PermissionChecker.promptAccessibility()
             errorMessage = "Accessibility access required — grant permission then click Retry"
