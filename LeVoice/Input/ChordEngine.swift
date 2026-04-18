@@ -59,19 +59,6 @@ struct ChordEngine {
 
             return []
 
-        case .pepperChat:
-            guard let pepperChord = bindings[.pepperChat] else {
-                activeRecordingAction = nil
-                return []
-            }
-
-            if !pressedKeys.isSuperset(of: pepperChord.keys) {
-                activeRecordingAction = nil
-                return [.stopRecording]
-            }
-
-            return []
-
         case nil:
             switch matchResult() {
             case .exact(let action):

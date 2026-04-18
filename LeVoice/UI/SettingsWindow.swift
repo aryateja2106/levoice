@@ -93,7 +93,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case corrections
     case models
     case transcriptionLab
-    case pepperChat
     case meetingTranscript
     case general
 
@@ -106,7 +105,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Corrections"
         case .models: "Models"
         case .transcriptionLab: "History"
-        case .pepperChat: "Context Bundler"
         case .meetingTranscript: "Meeting Transcript"
         case .general: "General"
         }
@@ -119,7 +117,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Words and replacements LeVoice should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
         case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
-        case .pepperChat: "Capture screen context and send to Zo, Trello, or clipboard."
         case .meetingTranscript: "Auto-detect calls and transcribe meetings locally."
         case .general: "Startup behavior and app-wide preferences."
         }
@@ -132,7 +129,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "text.badge.checkmark"
         case .models: "brain"
         case .transcriptionLab: "waveform.badge.magnifyingglass"
-        case .pepperChat: "bubble.right"
         case .meetingTranscript: "waveform.badge.mic"
         case .general: "gearshape"
         }
@@ -451,8 +447,6 @@ struct SettingsView: View {
                 modelsSection
             case .transcriptionLab:
                 transcriptionLabSection
-            case .pepperChat:
-                pepperChatSection
             case .meetingTranscript:
                 meetingTranscriptSection
             case .general:
@@ -1299,192 +1293,6 @@ struct SettingsView: View {
             exampleInput = entry.rawTranscription ?? ""
             exampleOutput = entry.correctedTranscription ?? ""
             exampleAdded = false
-        }
-    }
-
-    @State private var pepperChatTestResult: String?
-
-    private var pepperChatSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            SettingsCard("Availability") {
-                Toggle("Enable Context Bundler", isOn: $appState.pepperChatEnabled)
-
-                Text("When disabled, Context Bundler stays out of the menu bar and its shortcut will not start new chats.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsCard("Shortcut") {
-                ShortcutRecorderView(
-                    title: "Context Bundler (hold to speak)",
-                    chord: appState.pepperChatChord,
-                    onRecordingStateChange: appState.setShortcutCaptureActive
-                ) { chord in
-                    appState.updateShortcut(chord, for: .pepperChat)
-                }
-
-                Text("Hold the shortcut, speak your question, then release. The response appears in a floating chat window.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsCard("Zo API") {
-                VStack(alignment: .leading, spacing: 18) {
-                    SettingsField("API Key") {
-                        SecureField("Zo API key (zo_sk_...)", text: $appState.pepperChatApiKey)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 320)
-                    }
-
-                    Text("Get your API key from [Zo Settings > Advanced > Access Tokens](https://zo.computer).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(
-                        "Include screen context",
-                        isOn: $appState.pepperChatIncludeScreenContext
-                    )
-
-                    Text("When enabled, text from your frontmost window is sent as context with your voice prompt.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        Button("Test Connection") {
-                            pepperChatTestResult = nil
-                            Task {
-                                do {
-                                    let backend = appState.makePepperChatBackend()
-                                    guard let backend else {
-                                        pepperChatTestResult = "Add your Zo API key above."
-                                        return
-                                    }
-                                    var response = ""
-                                    try await backend.send(prompt: "Say hello in one short sentence.", screenContext: nil) { chunk in
-                                        response += chunk
-                                    }
-                                    pepperChatTestResult = response.isEmpty ? "Connected but got empty response." : "Connected! Response: \(String(response.prefix(100)))"
-                                } catch {
-                                    pepperChatTestResult = "Failed: \(error.localizedDescription)"
-                                }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-
-                        if let result = pepperChatTestResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
-                                .lineLimit(2)
-                        }
-                    }
-                }
-            }
-
-            SettingsCard("Trello (optional)") {
-                VStack(alignment: .leading, spacing: 18) {
-                    if appState.trelloToken.isEmpty {
-                        // Not connected
-                        Text("Connect your Trello account to add cards directly from the Context Bundler. Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) → click **New** → copy the API key.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        SettingsField("App Key") {
-                            TextField("Paste your Trello API key", text: $appState.trelloApiKey)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 320)
-                        }
-
-                        Button(action: {
-                            let authURL = "https://trello.com/1/authorize?key=\(appState.trelloApiKey)&name=Ghost%20Pepper&scope=read,write&response_type=token&expiration=never"
-                            if let url = URL(string: authURL) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "link")
-                                Text("Connect Trello")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                        .disabled(appState.trelloApiKey.isEmpty)
-
-                        Text("After clicking Allow on Trello's page, paste the token below:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        SettingsField("Token") {
-                            SecureField("Paste your Trello token here", text: $appState.trelloToken)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 320)
-                        }
-                    } else {
-                        // Connected
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.callout)
-                            Text("Trello connected")
-                                .font(.callout.weight(.medium))
-                            Spacer()
-                            Button("Refresh boards") {
-                                Task { await appState.fetchTrelloBoards() }
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.caption)
-                            Button("Disconnect") {
-                                appState.trelloToken = ""
-                                appState.trelloDefaultListId = ""
-                                appState.trelloBoards = []
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.caption)
-                        }
-
-                        // Default list picker
-                        if !appState.trelloBoards.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Default list (used when you don't specify a board/list name):")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                Picker("Default list", selection: $appState.trelloDefaultListId) {
-                                    Text("Auto (first list)").tag("")
-                                    ForEach(appState.trelloBoards) { board in
-                                        ForEach(board.lists) { list in
-                                            Text("\(board.name) → \(list.name)").tag(list.id)
-                                        }
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(maxWidth: 400)
-                            }
-
-                            Text("You can also say a board or list name when speaking — LeVoice will match it automatically. \(appState.trelloBoards.count) boards, \(appState.trelloBoards.flatMap(\.lists).count) lists loaded.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Button("Fetch boards & lists") {
-                                Task { await appState.fetchTrelloBoards() }
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-
-                    if !appState.trelloToken.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.caption)
-                            Text("\"Add to Trello\" will appear in the Context Bundler")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
         }
     }
 

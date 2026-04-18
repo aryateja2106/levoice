@@ -66,18 +66,6 @@ class AppState: ObservableObject {
     @AppStorage("cleanupPrompt") var cleanupPrompt: String = TextCleaner.defaultPrompt
     @AppStorage("speechModel") var speechModel: String = SpeechModelCatalog.defaultModelID
     @AppStorage("preferredLanguage") var preferredLanguage: String = "auto"
-    @AppStorage("pepperChatHost") var pepperChatHost: String = "https://api.zo.computer"
-    @AppStorage("pepperChatApiKey") var pepperChatApiKey: String = ""
-    @AppStorage("pepperChatEnabled") var pepperChatEnabled: Bool = false {
-        didSet {
-            hotkeyMonitor.updateBindings(shortcutBindings)
-        }
-    }
-    @AppStorage("pepperChatIncludeScreenContext") var pepperChatIncludeScreenContext: Bool = true
-    @AppStorage("trelloApiKey") var trelloApiKey: String = ""
-    @AppStorage("trelloToken") var trelloToken: String = ""
-    @AppStorage("trelloDefaultListId") var trelloDefaultListId: String = ""
-    @Published var trelloBoards: [TrelloBoard] = []
     @AppStorage("meetingTranscriptEnabled") var meetingTranscriptEnabled: Bool = false
     @AppStorage("meetingAutoDetectEnabled") var meetingAutoDetectEnabled: Bool = true
     @AppStorage("meetingWindowFloatsWhileRecording") var meetingWindowFloatsWhileRecording: Bool = true
@@ -85,7 +73,6 @@ class AppState: ObservableObject {
     @AppStorage("pauseMediaWhileRecording") var pauseMediaWhileRecording: Bool = true
     @Published private(set) var pushToTalkChord: KeyChord
     @Published private(set) var toggleToTalkChord: KeyChord
-    @Published private(set) var pepperChatChord: KeyChord
     @Published var postPasteLearningEnabled: Bool {
         didSet {
             cleanupSettingsDefaults.set(
@@ -161,7 +148,6 @@ class AppState: ObservableObject {
     private static let postPasteLearningEnabledDefaultsKey = "postPasteLearningEnabled"
     private static let ignoreOtherSpeakersDefaultsKey = "ignoreOtherSpeakers"
     private static let playSoundsDefaultsKey = "playSounds"
-    private static let pepperChatEnabledDefaultsKey = "pepperChatEnabled"
     private static let emptyTranscriptionCancelThresholdSampleCount = 8_000 // ~0.5 seconds — show "no sound" hint for almost all failed recordings
     private static let speechModelErrorPrefix = "Failed to load speech model: "
 
@@ -176,15 +162,9 @@ class AppState: ObservableObject {
         PhysicalKey(keyCode: 49)   // Space
     ]))!
 
-    nonisolated static let defaultPepperChatChord = KeyChord(keys: Set([
-        PhysicalKey(keyCode: 54),  // Right Command
-        PhysicalKey(keyCode: 31)   // O
-    ]))!
-
     nonisolated static let defaultShortcutBindings: [ChordAction: KeyChord] = [
         .pushToTalk: defaultPushToTalkChord,
-        .toggleToTalk: defaultToggleToTalkChord,
-        .pepperChat: defaultPepperChatChord
+        .toggleToTalk: defaultToggleToTalkChord
     ]
 
     init(
@@ -215,7 +195,6 @@ class AppState: ObservableObject {
         self.inputMonitoringPrompter = inputMonitoringPrompter
         self.pushToTalkChord = chordBindingStore.binding(for: .pushToTalk) ?? AppState.defaultPushToTalkChord
         self.toggleToTalkChord = chordBindingStore.binding(for: .toggleToTalk) ?? AppState.defaultToggleToTalkChord
-        self.pepperChatChord = chordBindingStore.binding(for: .pepperChat) ?? AppState.defaultPepperChatChord
         self.textCleanupManager = textCleanupManager ?? TextCleanupManager(defaults: cleanupSettingsDefaults)
         self.frontmostWindowOCRService = frontmostWindowOCRService
         self.recordingOCRPrefetch = RecordingOCRPrefetch { [frontmostWindowOCRService] customWords in
@@ -253,9 +232,6 @@ class AppState: ObservableObject {
             self.playSounds = true
         } else {
             self.playSounds = cleanupSettingsDefaults.bool(forKey: Self.playSoundsDefaultsKey)
-        }
-        if UserDefaults.standard.object(forKey: Self.pepperChatEnabledDefaultsKey) == nil {
-            pepperChatEnabled = !(UserDefaults.standard.string(forKey: "pepperChatApiKey") ?? "").isEmpty
         }
         self.transcriber = SpeechTranscriber(modelManager: modelManager)
         self.textCleaner = TextCleaner(
@@ -377,58 +353,6 @@ class AppState: ObservableObject {
             }
         }
 
-        // Wire up Trello
-        pepperChatWindowController.isTrelloConfigured = { [weak self] in
-            guard let self = self else { return false }
-            return !self.trelloApiKey.isEmpty && !self.trelloToken.isEmpty
-        }
-        pepperChatWindowController.onSendToTrello = { [weak self] command, context in
-            guard let self = self,
-                  !self.trelloApiKey.isEmpty,
-                  !self.trelloToken.isEmpty else { return }
-
-            // Parse the spoken command into structured Trello action
-            let parsed = TrelloCommandParser.parse(command)
-            self.debugLogStore.record(category: .model, message: "Trello parsed: title=\"\(parsed.cardTitle)\" board=\"\(parsed.boardName ?? "auto")\" list=\"\(parsed.listName ?? "auto")\"")
-
-            let backend = TrelloBackend(apiKey: self.trelloApiKey, token: self.trelloToken)
-            Task {
-                do {
-                    // Find the right list — use parsed board/list names if spoken
-                    let searchTerm = [parsed.boardName, parsed.listName].compactMap { $0 }.joined(separator: " ")
-                    let listId = TrelloBackend.findList(
-                        matching: searchTerm.isEmpty ? command : searchTerm,
-                        in: self.trelloBoards,
-                        defaultListId: self.trelloDefaultListId
-                    )
-                    guard let listId else {
-                        self.debugLogStore.record(category: .model, message: "Trello: no list found. Fetch boards in Settings first.")
-                        return
-                    }
-
-                    let description = context ?? ""
-                    let cardURL = try await backend.createCard(name: parsed.cardTitle, description: description, listId: listId)
-                    self.debugLogStore.record(category: .model, message: "Trello card created: \"\(parsed.cardTitle)\" → \(cardURL ?? "unknown")")
-                } catch {
-                    self.debugLogStore.record(category: .model, message: "Trello error: \(error.localizedDescription)")
-                }
-            }
-        }
-
-        // Fetch Trello boards on startup if configured
-        if !trelloApiKey.isEmpty && !trelloToken.isEmpty {
-            Task { await fetchTrelloBoards() }
-        }
-
-        // Wire up "save as note" to open in meetings view
-        pepperChatWindowController.onOpenInMeetings = { [weak self] url in
-            self?.meetingTranscriptWindowController.show()
-            // Small delay to let window appear, then open the file
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self?.meetingTranscriptWindowController.windowState?.openFile(url)
-            }
-        }
-
         // Wire up "no sound" overlay to open settings
         overlay.onNoSoundSettingsTapped = { [weak self] in
             self?.showSettings()
@@ -512,16 +436,6 @@ class AppState: ObservableObject {
                 self?.activePerformanceTrace?.hotkeyLiftedAt = Date()
                 await self?.stopRecordingAndTranscribe()
             }
-        }
-
-        // Context Bundler uses toggle mode: press once to start, press again to stop
-        hotkeyMonitor.onPepperChatStart = { [weak self] in
-            Task { @MainActor in
-                self?.toggleContextBundlerRecording()
-            }
-        }
-        hotkeyMonitor.onPepperChatStop = {
-            // No-op on key release — toggle mode handles everything on key down
         }
 
         hotkeyMonitor.updateBindings(shortcutBindings)
@@ -892,7 +806,6 @@ class AppState: ObservableObject {
     private let promptEditorController = PromptEditorController()
     private let cleanupTranscriptWindowController = CleanupTranscriptWindowController()
     private let debugLogWindowController = DebugLogWindowController()
-    private let pepperChatWindowController = PepperChatWindowController()
     private lazy var meetingTranscriptWindowController: MeetingTranscriptWindowController = {
         let controller = MeetingTranscriptWindowController()
         controller.shouldFloatWhileRecording = { [weak self] in
@@ -916,18 +829,6 @@ class AppState: ObservableObject {
     }()
     private let meetingDetector = MeetingDetector()
     @Published var activeMeetingSession: MeetingSession?
-    private(set) lazy var pepperChatSession: PepperChatSession = {
-        let session = PepperChatSession(transcriber: transcriber)
-        session.debugLogger = debugLogStore.record
-        session.updateBackendProvider { [weak self] in
-            self?.makePepperChatBackend()
-        }
-        session.updateCleanupProvider { [weak self] text in
-            guard let self else { return text }
-            return await self.cleanedTranscription(text)
-        }
-        return session
-    }()
 
     func resetAudioEngine() {
         audioRecorder.targetDeviceID = AudioDeviceManager.selectedInputDeviceID()
@@ -949,130 +850,6 @@ class AppState: ObservableObject {
 
     func showDebugLog() {
         debugLogWindowController.show(debugLogStore: debugLogStore)
-    }
-
-    func showPepperChat() {
-        guard pepperChatEnabled else { return }
-        pepperChatWindowController.show(session: pepperChatSession)
-    }
-
-    private var pepperChatRecorder: AudioRecorder?
-    private var contextCaptureMonitor: Any?
-    private var lastCapturedWindowTitle: String?
-
-    func toggleContextBundlerRecording() {
-        if pepperChatRecorder != nil {
-            // Already recording — stop
-            endPepperChatRecording()
-        } else {
-            // Not recording — start
-            beginPepperChatRecording()
-        }
-    }
-
-    func beginPepperChatRecording() {
-        guard pepperChatEnabled, !pepperChatApiKey.isEmpty else { return }
-        // Clear previous state so new recording takes over
-        pepperChatSession.isReviewingContext = false
-        pepperChatSession.capturedCommand = nil
-        pepperChatSession.capturedScreenContext = nil
-        pepperChatSession.capturedScreenshots = []
-        pepperChatSession.capturedContextTexts = []
-        pepperChatSession.capturedAppNames = []
-        pepperChatSession.preCapturedScreenContexts = []
-
-        // Capture initial screenshot + OCR before the bubble appears
-        if pepperChatIncludeScreenContext {
-            captureContextForBundler()
-            // Monitor mouse clicks during recording to capture new windows
-            contextCaptureMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
-                // Small delay to let the click register and window focus change
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    guard let self = self, self.pepperChatRecorder != nil else { return }
-                    self.captureContextForBundler()
-                }
-            }
-        }
-
-        let recorder = AudioRecorder()
-        recorder.targetDeviceID = AudioDeviceManager.selectedInputDeviceID()
-        recorder.prewarm()
-        try? recorder.startRecording()
-        pepperChatRecorder = recorder
-        pepperChatSession.isRecording = true
-        soundEffects.playStart()
-        pepperChatWindowController.show(session: pepperChatSession)
-        debugLogStore.record(category: .hotkey, message: "Context Bundler recording started.")
-    }
-
-    /// Capture the current frontmost window's context (if it's a new/different window)
-    private func captureContextForBundler() {
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              let bundleId = app.bundleIdentifier,
-              bundleId != Bundle.main.bundleIdentifier else { return }
-
-        // Get window title to detect tab/window changes within the same app
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var windowValue: CFTypeRef?
-        var windowTitle = ""
-        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue) == .success {
-            var titleValue: CFTypeRef?
-            if AXUIElementCopyAttributeValue(windowValue as! AXUIElement, kAXTitleAttribute as CFString, &titleValue) == .success {
-                windowTitle = (titleValue as? String) ?? ""
-            }
-        }
-
-        let captureKey = "\(bundleId):\(windowTitle)"
-        guard captureKey != lastCapturedWindowTitle else { return }
-        lastCapturedWindowTitle = captureKey
-
-        let appName = app.localizedName ?? "Unknown"
-        pepperChatSession.capturedAppNames.append(appName)
-
-        Task {
-            // Screenshot
-            if let cgImage = try? await WindowCaptureService().captureFrontmostWindowImage() {
-                let screenshot = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width / 2, height: cgImage.height / 2))
-                pepperChatSession.capturedScreenshots.append(screenshot)
-            }
-            // OCR
-            let ocrResult = await frontmostWindowOCRService.captureContext(customWords: [])
-            if let text = ocrResult?.windowContents {
-                pepperChatSession.preCapturedScreenContexts.append(text)
-            }
-            debugLogStore.record(category: .ocr, message: "Context bundler captured: \(appName)")
-        }
-    }
-
-    func endPepperChatRecording() {
-        guard let recorder = pepperChatRecorder else { return }
-        pepperChatSession.isRecording = false
-        pepperChatSession.isTranscribing = true  // Keep bubble alive during async transcription
-        pepperChatRecorder = nil
-        if let monitor = contextCaptureMonitor {
-            NSEvent.removeMonitor(monitor)
-            contextCaptureMonitor = nil
-        }
-        lastCapturedWindowTitle = nil
-        hotkeyMonitor.updateBindings(shortcutBindings)
-        soundEffects.playStop()
-        debugLogStore.record(category: .hotkey, message: "Context Bundler recording stopped.")
-
-        Task {
-            let buffer = await recorder.stopRecording()
-            await pepperChatSession.processRecording(
-                audioBuffer: buffer,
-                includeScreenContext: pepperChatIncludeScreenContext
-            )
-            // Pop the window back up if it was minimized
-            pepperChatWindowController.showIfOpen()
-        }
-    }
-
-    func makePepperChatBackend() -> PepperChatBackend? {
-        guard !pepperChatApiKey.isEmpty else { return nil }
-        let host = pepperChatHost.isEmpty ? "https://api.zo.computer" : pepperChatHost
-        return ZoBackend(host: host, apiKey: pepperChatApiKey)
     }
 
     // MARK: - Meeting Transcript
@@ -1139,17 +916,6 @@ class AppState: ObservableObject {
         meetingTranscriptWindowController.refreshPresentation()
     }
 
-    func fetchTrelloBoards() async {
-        guard !trelloApiKey.isEmpty, !trelloToken.isEmpty else { return }
-        let backend = TrelloBackend(apiKey: trelloApiKey, token: trelloToken)
-        do {
-            trelloBoards = try await backend.fetchBoardsAndLists()
-            debugLogStore.record(category: .model, message: "Trello: fetched \(trelloBoards.count) boards with \(trelloBoards.flatMap(\.lists).count) lists")
-        } catch {
-            debugLogStore.record(category: .model, message: "Trello fetch failed: \(error.localizedDescription)")
-        }
-    }
-
     func generateMeetingSummary(for transcript: MeetingTranscript) async {
         guard !transcript.segments.isEmpty else { return }
         transcript.isGeneratingSummary = true
@@ -1179,15 +945,12 @@ class AppState: ObservableObject {
 
         meetingDetector.onMeetingDetected = { [weak self] meeting in
             guard let self = self, self.activeMeetingSession == nil else { return }
-            self.pepperChatSession.showMeetingPrompt(meeting: meeting) { [weak self] in
-                self?.startMeetingTranscription(
-                    meetingName: meeting.suggestedName,
-                    skipConsent: meeting.isVideo,
-                    sourceURL: meeting.sourceURL,
-                    detectedMeeting: meeting
-                )
-            }
-            self.pepperChatWindowController.show(session: self.pepperChatSession)
+            self.startMeetingTranscription(
+                meetingName: meeting.suggestedName,
+                skipConsent: meeting.isVideo,
+                sourceURL: meeting.sourceURL,
+                detectedMeeting: meeting
+            )
         }
 
         meetingDetector.start()
@@ -1202,22 +965,15 @@ class AppState: ObservableObject {
     }
 
     private var shortcutBindings: [ChordAction: KeyChord] {
-        var bindings: [ChordAction: KeyChord] = [
+        [
             .pushToTalk: pushToTalkChord,
             .toggleToTalk: toggleToTalkChord
         ]
-
-        if pepperChatEnabled || pepperChatRecorder != nil {
-            bindings[.pepperChat] = pepperChatChord
-        }
-
-        return bindings
     }
 
     private func persistShortcutBindingsIfNeeded() {
         try? chordBindingStore.setBinding(pushToTalkChord, for: .pushToTalk)
         try? chordBindingStore.setBinding(toggleToTalkChord, for: .toggleToTalk)
-        try? chordBindingStore.setBinding(pepperChatChord, for: .pepperChat)
     }
 
     private var canAttemptCleanup: Bool {
@@ -1477,7 +1233,6 @@ class AppState: ObservableObject {
     func updateShortcut(_ chord: KeyChord, for action: ChordAction) {
         let previousPushChord = pushToTalkChord
         let previousToggleChord = toggleToTalkChord
-        let previousPepperChatChord = pepperChatChord
 
         do {
             try chordBindingStore.setBinding(chord, for: action)
@@ -1488,15 +1243,12 @@ class AppState: ObservableObject {
                 pushToTalkChord = chord
             case .toggleToTalk:
                 toggleToTalkChord = chord
-            case .pepperChat:
-                pepperChatChord = chord
             }
 
             hotkeyMonitor.updateBindings(shortcutBindings)
         } catch {
             pushToTalkChord = previousPushChord
             toggleToTalkChord = previousToggleChord
-            pepperChatChord = previousPepperChatChord
             shortcutErrorMessage = "That shortcut is already in use."
         }
     }

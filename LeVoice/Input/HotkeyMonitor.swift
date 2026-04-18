@@ -10,8 +10,6 @@ protocol HotkeyMonitoring: AnyObject {
     var onPushToTalkStop: (() -> Void)? { get set }
     var onToggleToTalkStart: (() -> Void)? { get set }
     var onToggleToTalkStop: (() -> Void)? { get set }
-    var onPepperChatStart: (() -> Void)? { get set }
-    var onPepperChatStop: (() -> Void)? { get set }
 
     func start() -> Bool
     func stop()
@@ -53,8 +51,6 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
     var onPushToTalkStop: (() -> Void)?
     var onToggleToTalkStart: (() -> Void)?
     var onToggleToTalkStop: (() -> Void)?
-    var onPepperChatStart: (() -> Void)?
-    var onPepperChatStop: (() -> Void)?
 
     // MARK: - State
 
@@ -399,8 +395,6 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
                 } else {
                     onRecordingStart?()
                 }
-            case .pepperChat:
-                onPepperChatStart?()
             }
         }
 
@@ -409,8 +403,6 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
             switch restartAction {
             case .pushToTalk, .toggleToTalk:
                 onRecordingRestart?()
-            case .pepperChat:
-                break
             }
         }
 
@@ -428,8 +420,6 @@ final class HotkeyMonitor: NSObject, HotkeyMonitoring {
                 } else {
                     onRecordingStop?()
                 }
-            case .pepperChat:
-                onPepperChatStop?()
             }
         }
     }
