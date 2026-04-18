@@ -1,19 +1,21 @@
 <?xml version="1.0" standalone="yes"?>
+<!--
+  LeVoice Sparkle appcast — placeholder.
+
+  This file does NOT ship yet. The Sparkle SUFeedURL has been removed from
+  Info.plist, so the app will not check for updates until:
+    1. You host a real appcast (GitHub Pages, S3, Cloudflare, your own server).
+    2. You generate a Sparkle ed25519 key pair and put the public key in
+       Info.plist under SUPublicEDKey.
+    3. You update the <link> and <enclosure url=...> below to point at your
+       actual release host, and regenerate the signature with sign_update.
+
+  See levoice-commercial-prep.md for the full walkthrough.
+-->
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
   <channel>
-    <title>Ghost Pepper</title>
-    <link>https://github.com/matthartman/ghost-pepper</link>
-    <item>
-      <title>Version 2.1.2</title>
-      <sparkle:version>15</sparkle:version>
-      <sparkle:shortVersionString>2.1.2</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure
-        url="https://github.com/matthartman/ghost-pepper/releases/download/v2.1.2/GhostPepper.dmg"
-        type="application/octet-stream"
-        sparkle:edSignature="JZtur6N5OBWNCyif/c3woWJmmWevXX8/+BQ9kMhQfrUxqbVfi2aG1ZD6t7+z2sxyjjrMNrSgnyGA9tonKI3LDg=="
-        length="23614722"
-      />
-    </item>
+    <title>LeVoice</title>
+    <link>https://example.com/levoice</link>
+    <!-- No items yet — add one once you ship a signed, notarized DMG. -->
   </channel>
 </rss>

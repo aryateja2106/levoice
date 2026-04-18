@@ -1,6 +1,6 @@
-name: GhostPepper
+name: LeVoice
 options:
-  bundleIdPrefix: com.github.matthartman
+  bundleIdPrefix: ai.lesearch
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "16.0"
@@ -20,23 +20,27 @@ packages:
     from: "2.6.0"
 
 targets:
-  GhostPepper:
+  LeVoice:
     type: application
     platform: macOS
     sources:
-      - GhostPepper
+      - LeVoice
     settings:
       base:
-        INFOPLIST_FILE: GhostPepper/Info.plist
-        CODE_SIGN_ENTITLEMENTS: GhostPepper/GhostPepper.entitlements
+        INFOPLIST_FILE: LeVoice/Info.plist
+        CODE_SIGN_ENTITLEMENTS: LeVoice/LeVoice.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        PRODUCT_BUNDLE_IDENTIFIER: com.github.matthartman.ghostpepper
+        PRODUCT_BUNDLE_IDENTIFIER: ai.lesearch.levoice
         ENABLE_APP_SANDBOX: NO
         CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
         ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: BBVMGXR9AY
+        # TODO(arya): set this to your own Apple Developer team ID before
+        # generating the project. Find it at https://developer.apple.com/account
+        # under Membership Details, or run:
+        #   security find-identity -v -p codesigning
+        DEVELOPMENT_TEAM: ""
     dependencies:
       - package: WhisperKit
       - package: FluidAudio
@@ -44,20 +48,20 @@ targets:
         product: LLM
       - package: Sparkle
     entitlements:
-      path: GhostPepper/GhostPepper.entitlements
+      path: LeVoice/LeVoice.entitlements
       properties:
         com.apple.security.device.audio-input: true
 
-  GhostPepperTests:
+  LeVoiceTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - GhostPepperTests
+      - LeVoiceTests
     dependencies:
-      - target: GhostPepper
+      - target: LeVoice
     settings:
       base:
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/GhostPepper.app/Contents/MacOS/GhostPepper"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/LeVoice.app/Contents/MacOS/LeVoice"
         BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
 
@@ -72,7 +76,7 @@ targets:
         product: LLM
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.github.matthartman.ghostpepper.cleanup-model-probe
+        PRODUCT_BUNDLE_IDENTIFIER: ai.lesearch.levoice.cleanup-model-probe
         GENERATE_INFOPLIST_FILE: YES
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"

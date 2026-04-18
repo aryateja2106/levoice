@@ -1,18 +1,18 @@
 <div align="center">
 
-<img src="./app-icon.png" width="80" alt="Ghost Pepper">
+<img src="./app-icon.png" width="80" alt="LeVoice">
 
-# Ghost Pepper
+# LeVoice
 
 **100% private** on-device voice models for speech-to-text and meeting transcription on macOS. No cloud APIs, no data leaves your machine.
 
-<a href="https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg">
+<a href="https://github.com/lesearch-ai/levoice/releases/latest/download/LeVoice.dmg">
   <img src="https://img.shields.io/badge/Download_for_Mac-FF6600?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" height="40">
 </a>
 
 macOS 14.0+ · Apple Silicon (M1+) · Free & open source
 
-[![GitHub stars](https://img.shields.io/github/stars/matthartman/ghost-pepper?style=social)](https://github.com/matthartman/ghost-pepper)
+[![GitHub stars](https://img.shields.io/github/stars/lesearch-ai/levoice?style=social)](https://github.com/lesearch-ai/levoice)
 &nbsp;
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 &nbsp;
@@ -33,7 +33,7 @@ macOS 14.0+ · Apple Silicon (M1+) · Free & open source
 
 ## How it works
 
-Ghost Pepper uses open-source models that run entirely on your Mac. Models download automatically and are cached locally.
+LeVoice uses open-source models that run entirely on your Mac. Models download automatically and are cached locally.
 
 ### Speech models
 
@@ -58,16 +58,16 @@ Speech models powered by [WhisperKit](https://github.com/argmaxinc/WhisperKit). 
 ## Getting started
 
 **Download the app:**
-1. Download [GhostPepper.dmg](https://github.com/matthartman/ghost-pepper/releases/latest/download/GhostPepper.dmg)
-2. Open the DMG, drag Ghost Pepper to Applications
+1. Download [LeVoice.dmg](https://github.com/lesearch-ai/levoice/releases/latest/download/LeVoice.dmg)
+2. Open the DMG, drag LeVoice to Applications
 3. Grant Microphone and Accessibility permissions when prompted
 4. Hold Control and speak
 
-> **"Apple could not verify" warning?** On macOS Sequoia, you may see a Gatekeeper warning the first time you open the app. Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the Ghost Pepper message. Click **Confirm** in the popup. You only need to do this once.
+> **"Apple could not verify" warning?** On macOS Sequoia, you may see a Gatekeeper warning the first time you open the app. Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the LeVoice message. Click **Confirm** in the popup. You only need to do this once.
 
 **Build from source:**
 1. Clone the repo
-2. Open `GhostPepper.xcodeproj` in Xcode
+2. Open `LeVoice.xcodeproj` in Xcode
 3. Build and run (Cmd+R)
 
 ## Permissions
@@ -109,16 +109,16 @@ Built with [WhisperKit](https://github.com/argmaxinc/WhisperKit), [LLM.swift](ht
 
 MIT
 
-## Why "Ghost Pepper"?
+## Why "LeVoice"?
 
 All models run locally, no private data leaves your computer. And it's spicy to offer something for free that other apps have raised $80M to build.
 
 ## Enterprise / managed devices
 
-Ghost Pepper requires Accessibility permission, which normally needs admin access to grant. On managed devices, IT admins can pre-approve this via an MDM profile (Jamf, Kandji, Mosaic, etc.) using a Privacy Preferences Policy Control (PPPC) payload:
+LeVoice requires Accessibility permission, which normally needs admin access to grant. On managed devices, IT admins can pre-approve this via an MDM profile (Jamf, Kandji, Mosaic, etc.) using a Privacy Preferences Policy Control (PPPC) payload:
 
 | Field | Value |
 |---|---|
-| Bundle ID | `com.github.matthartman.ghostpepper` |
-| Team ID | `BBVMGXR9AY` |
+| Bundle ID | `ai.lesearch.levoice` |
+| Team ID | _(your Apple Developer Team ID — find it at developer.apple.com → Membership)_ |
 | Permission | Accessibility (`com.apple.security.accessibility`) |
