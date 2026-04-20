@@ -35,6 +35,67 @@ accumulates under the `[Unreleased]` heading at the top.
 
 ---
 
+## [0.0.3] (build 3) — 2026-04-19
+
+Second public release. Adds the shortcut palette and fixes the long-standing
+Caps Lock stuck-indicator bug that forced rollback of in-app Hyperkey in 0.0.2.
+
+### Added
+
+- **Shortcut palette** (`⌃⌥⌘/`) — Raycast-style overlay that enumerates the
+  focused app's menu bar via Accessibility, ranks by recent usage, and fires
+  any menu item directly. New modules: `LeVoice/Context/AppMenuIntrospecter`,
+  `LeVoice/Context/ShortcutEntry`, `LeVoice/Context/ShortcutUsageStore`,
+  `LeVoice/Input/ShortcutPaletteTrigger`, `LeVoice/UI/ShortcutPaletteController`,
+  `LeVoice/UI/ShortcutPaletteView`.
+- "Show Shortcuts…" entry in the menu bar with the global hotkey hint.
+- Sparkle `SPUStandardUpdaterController` wired via `LeVoiceApp` so the
+  "Check for Updates" menu item is functional once the appcast host lands.
+
+### Fixed
+
+- **Caps Lock stuck-indicator** root cause. The previous implementation
+  swallowed `flagsChanged` inside the CGEvent tap, which prevented macOS
+  from updating its internal caps-lock state and left the on-screen
+  indicator stuck until a Shift press refreshed it. New
+  `HyperkeyHIDRemapper` applies a system-wide `hidutil` Caps Lock → F18
+  remap at the HID layer, so the OS no longer sees a toggle event it
+  can't account for. `HyperkeyManager` now listens for F18 keyDown/keyUp
+  pairs, which gives the state machine real edges to work with. Matches
+  the Knollsoft Hyperkey architecture.
+- **Shift-during-hold cancels quick-tap**. Pressing Shift alone while
+  Caps Lock was held incorrectly latched `keyPressedWhileHeld`, silently
+  suppressing the quick-tap synthesis. `isModifierKeyCode` gate at
+  `HyperkeyManager.swift:198` excludes Shift/Option/Control/Command so
+  only real letter keys cancel the quick-tap path.
+- **Crash-safe HID remap cleanup**. If a previous session crashed with
+  the remap active, the app now clears it at launch when Hyperkey is
+  disabled. `AppState.prepareForTermination` always calls
+  `hyperkeyManager.stop()` which unconditionally disables the remap,
+  so Caps Lock is restored on normal quit.
+
+### Changed
+
+- **Default `quickPressKeyCode` 53 (Escape) → 57 (Caps Lock
+  pass-through).** Quick-tap now synthesises a real Caps Lock CGEvent,
+  so the LED / indicator toggles exactly like a stock MacBook. Matches
+  Knollsoft Hyperkey default. Users who prefer Caps-Lock-as-Escape can
+  still set that in Settings.
+
+### Testing
+
+- New `HyperkeyManagerTests` with 3 cases covering the modifier-key
+  predicate so the Shift-during-hold bug can't regress.
+- Updated `HyperkeySettingsTests` for the new default. **9/9 Hyperkey
+  tests pass.**
+
+### Known limitations
+
+- `appcast.xml` is still a placeholder. Auto-update is effectively a
+  no-op until we host the feed and ship `SUFeedURL` in `Info.plist`.
+
+---
+
 ## [0.0.1] (build 1) — 2026-04-17
 
 First tagged LeVoice build. Internally distributable; **not yet signed or
