@@ -50,6 +50,7 @@ struct LeVoiceApp: App {
                 ProcessInfo.processInfo.disableAutomaticTermination(Self.automaticTerminationReason)
                 guard !hasInitialized else { return }
                 hasInitialized = true
+                appState.sparkleUpdater = lazyUpdater.controller.updater
                 if onboardingCompleted {
                     Task { await appState.initialize() }
                 } else {

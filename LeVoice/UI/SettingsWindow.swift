@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import CoreAudio
 import ServiceManagement
+import Sparkle
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
@@ -93,7 +94,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case corrections
     case models
     case transcriptionLab
-    case pepperChat
     case meetingTranscript
     case general
 
@@ -106,7 +106,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Corrections"
         case .models: "Models"
         case .transcriptionLab: "History"
-        case .pepperChat: "Context Bundler"
         case .meetingTranscript: "Meeting Transcript"
         case .general: "General"
         }
@@ -119,7 +118,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "Words and replacements LeVoice should preserve."
         case .models: "Speech and cleanup model downloads and runtime status."
         case .transcriptionLab: "Saved recordings, reruns, and cleanup experiments."
-        case .pepperChat: "Capture screen context and send to Zo, Trello, or clipboard."
         case .meetingTranscript: "Auto-detect calls and transcribe meetings locally."
         case .general: "Startup behavior and app-wide preferences."
         }
@@ -132,7 +130,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .corrections: "text.badge.checkmark"
         case .models: "brain"
         case .transcriptionLab: "waveform.badge.magnifyingglass"
-        case .pepperChat: "bubble.right"
         case .meetingTranscript: "waveform.badge.mic"
         case .general: "gearshape"
         }
@@ -451,8 +448,6 @@ struct SettingsView: View {
                 modelsSection
             case .transcriptionLab:
                 transcriptionLabSection
-            case .pepperChat:
-                pepperChatSection
             case .meetingTranscript:
                 meetingTranscriptSection
             case .general:
@@ -516,6 +511,59 @@ struct SettingsView: View {
                     Text("Push to talk records while the hold chord stays down. Toggle recording starts and stops when you press the full toggle chord.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            SettingsCard("Hyper Key") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Toggle(
+                        "Remap Caps Lock to Hyper (⌘⌥⌃\(appState.hyperkeySettings.includeShift ? "⇧" : ""))",
+                        isOn: Binding(
+                            get: { appState.hyperkeySettings.enabled },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.enabled = newValue
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    )
+
+                    Toggle(
+                        "Include Shift in Hyper chord",
+                        isOn: Binding(
+                            get: { appState.hyperkeySettings.includeShift },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.includeShift = newValue
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    )
+                    .disabled(!appState.hyperkeySettings.enabled)
+
+                    Picker(
+                        "Quick-tap Caps Lock fires",
+                        selection: Binding(
+                            get: { Int(appState.hyperkeySettings.quickPressKeyCode) },
+                            set: { newValue in
+                                var updated = appState.hyperkeySettings
+                                updated.quickPressKeyCode = UInt16(newValue)
+                                appState.hyperkeySettings = updated
+                            }
+                        )
+                    ) {
+                        Text("Escape").tag(53)
+                        Text("Caps Lock (pass through)").tag(57)
+                        Text("No action").tag(-1)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 320)
+                    .disabled(!appState.hyperkeySettings.enabled)
+
+                    Text("While Caps Lock is held, every key you press is sent as Hyper+<key> so Raycast, BetterTouchTool, or any app that listens for \(appState.hyperkeySettings.includeShift ? "⌘⌥⌃⇧" : "⌘⌥⌃") combinations will fire. A quick tap fires the key above instead. Requires Accessibility permission — same as push-to-talk.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -1302,192 +1350,6 @@ struct SettingsView: View {
         }
     }
 
-    @State private var pepperChatTestResult: String?
-
-    private var pepperChatSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            SettingsCard("Availability") {
-                Toggle("Enable Context Bundler", isOn: $appState.pepperChatEnabled)
-
-                Text("When disabled, Context Bundler stays out of the menu bar and its shortcut will not start new chats.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsCard("Shortcut") {
-                ShortcutRecorderView(
-                    title: "Context Bundler (hold to speak)",
-                    chord: appState.pepperChatChord,
-                    onRecordingStateChange: appState.setShortcutCaptureActive
-                ) { chord in
-                    appState.updateShortcut(chord, for: .pepperChat)
-                }
-
-                Text("Hold the shortcut, speak your question, then release. The response appears in a floating chat window.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsCard("Zo API") {
-                VStack(alignment: .leading, spacing: 18) {
-                    SettingsField("API Key") {
-                        SecureField("Zo API key (zo_sk_...)", text: $appState.pepperChatApiKey)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 320)
-                    }
-
-                    Text("Get your API key from [Zo Settings > Advanced > Access Tokens](https://zo.computer).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle(
-                        "Include screen context",
-                        isOn: $appState.pepperChatIncludeScreenContext
-                    )
-
-                    Text("When enabled, text from your frontmost window is sent as context with your voice prompt.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        Button("Test Connection") {
-                            pepperChatTestResult = nil
-                            Task {
-                                do {
-                                    let backend = appState.makePepperChatBackend()
-                                    guard let backend else {
-                                        pepperChatTestResult = "Add your Zo API key above."
-                                        return
-                                    }
-                                    var response = ""
-                                    try await backend.send(prompt: "Say hello in one short sentence.", screenContext: nil) { chunk in
-                                        response += chunk
-                                    }
-                                    pepperChatTestResult = response.isEmpty ? "Connected but got empty response." : "Connected! Response: \(String(response.prefix(100)))"
-                                } catch {
-                                    pepperChatTestResult = "Failed: \(error.localizedDescription)"
-                                }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-
-                        if let result = pepperChatTestResult {
-                            Text(result)
-                                .font(.caption)
-                                .foregroundStyle(result.hasPrefix("Connected") ? .green : .red)
-                                .lineLimit(2)
-                        }
-                    }
-                }
-            }
-
-            SettingsCard("Trello (optional)") {
-                VStack(alignment: .leading, spacing: 18) {
-                    if appState.trelloToken.isEmpty {
-                        // Not connected
-                        Text("Connect your Trello account to add cards directly from the Context Bundler. Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) → click **New** → copy the API key.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        SettingsField("App Key") {
-                            TextField("Paste your Trello API key", text: $appState.trelloApiKey)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 320)
-                        }
-
-                        Button(action: {
-                            let authURL = "https://trello.com/1/authorize?key=\(appState.trelloApiKey)&name=Ghost%20Pepper&scope=read,write&response_type=token&expiration=never"
-                            if let url = URL(string: authURL) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "link")
-                                Text("Connect Trello")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                        .disabled(appState.trelloApiKey.isEmpty)
-
-                        Text("After clicking Allow on Trello's page, paste the token below:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        SettingsField("Token") {
-                            SecureField("Paste your Trello token here", text: $appState.trelloToken)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 320)
-                        }
-                    } else {
-                        // Connected
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.callout)
-                            Text("Trello connected")
-                                .font(.callout.weight(.medium))
-                            Spacer()
-                            Button("Refresh boards") {
-                                Task { await appState.fetchTrelloBoards() }
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.caption)
-                            Button("Disconnect") {
-                                appState.trelloToken = ""
-                                appState.trelloDefaultListId = ""
-                                appState.trelloBoards = []
-                            }
-                            .buttonStyle(.bordered)
-                            .font(.caption)
-                        }
-
-                        // Default list picker
-                        if !appState.trelloBoards.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Default list (used when you don't specify a board/list name):")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                Picker("Default list", selection: $appState.trelloDefaultListId) {
-                                    Text("Auto (first list)").tag("")
-                                    ForEach(appState.trelloBoards) { board in
-                                        ForEach(board.lists) { list in
-                                            Text("\(board.name) → \(list.name)").tag(list.id)
-                                        }
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(maxWidth: 400)
-                            }
-
-                            Text("You can also say a board or list name when speaking — LeVoice will match it automatically. \(appState.trelloBoards.count) boards, \(appState.trelloBoards.flatMap(\.lists).count) lists loaded.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Button("Fetch boards & lists") {
-                                Task { await appState.fetchTrelloBoards() }
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-
-                    if !appState.trelloToken.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.caption)
-                            Text("\"Add to Trello\" will appear in the Context Bundler")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     @State private var meetingDirectoryBookmark: URL? = {
         MeetingTranscriptSettings.loadSaveDirectory()
     }()
@@ -1623,7 +1485,92 @@ struct SettingsView: View {
     }
 
     private var generalSection: some View {
-        SettingsCard("General") {
+        VStack(alignment: .leading, spacing: 16) {
+            updatesCard
+            keyboardShortcutsCard
+            startupCard
+        }
+    }
+
+    private var updatesCard: some View {
+        SettingsCard("Updates") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Current Version")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(appVersionString)
+                            .font(.title3.weight(.semibold))
+                    }
+                    Spacer()
+                    Button {
+                        sparkleController?.checkForUpdates()
+                    } label: {
+                        Label("Check Now", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(sparkleController == nil)
+                }
+                Divider()
+                Toggle(
+                    "Automatically check for updates",
+                    isOn: Binding(
+                        get: { sparkleController?.automaticallyChecksForUpdates ?? false },
+                        set: { sparkleController?.automaticallyChecksForUpdates = $0 }
+                    )
+                )
+                .disabled(sparkleController == nil)
+                Toggle(
+                    "Automatically download and install updates",
+                    isOn: Binding(
+                        get: { sparkleController?.automaticallyDownloadsUpdates ?? false },
+                        set: { sparkleController?.automaticallyDownloadsUpdates = $0 }
+                    )
+                )
+                .disabled(sparkleController == nil)
+                if sparkleController == nil {
+                    Text("Update server not configured. Updates can be installed manually from the GitHub releases page.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var keyboardShortcutsCard: some View {
+        SettingsCard("Keyboard Shortcuts (Global)") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("These shortcuts work in any app, anywhere on your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ShortcutRecorderView(
+                    title: "Hold to Record",
+                    chord: appState.pushToTalkChord,
+                    onRecordingStateChange: appState.setShortcutCaptureActive
+                ) { chord in
+                    appState.updateShortcut(chord, for: .pushToTalk)
+                }
+
+                ShortcutRecorderView(
+                    title: "Toggle Recording",
+                    chord: appState.toggleToTalkChord,
+                    onRecordingStateChange: appState.setShortcutCaptureActive
+                ) { chord in
+                    appState.updateShortcut(chord, for: .toggleToTalk)
+                }
+
+                if let shortcutErrorMessage = appState.shortcutErrorMessage {
+                    Text(shortcutErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private var startupCard: some View {
+        SettingsCard("Startup") {
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, enabled in
                     do {
@@ -1636,6 +1583,46 @@ struct SettingsView: View {
                         launchAtLogin = !enabled
                     }
                 }
+        }
+    }
+
+    private var appVersionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    private var sparkleController: SPUUpdater? {
+        appState.sparkleUpdater as? SPUUpdater
+    }
+}
+
+private struct StaticShortcutRow: View {
+    let title: String
+    let chord: String
+    var note: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(chord)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.secondary.opacity(0.12))
+                    )
+            }
+            if let note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
