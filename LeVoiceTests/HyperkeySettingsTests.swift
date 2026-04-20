@@ -6,7 +6,9 @@ final class HyperkeySettingsTests: XCTestCase {
         let defaults = HyperkeySettings.default
         XCTAssertFalse(defaults.enabled)
         XCTAssertEqual(defaults.remappedKeyCode, 57)   // Caps Lock
-        XCTAssertEqual(defaults.quickPressKeyCode, 53) // Escape
+        // Quick-tap passes through to Caps Lock (matches Knollsoft Hyperkey default).
+        // Synthesised via CGEvent so the OS still toggles caps state / LED.
+        XCTAssertEqual(defaults.quickPressKeyCode, 57)
         XCTAssertTrue(defaults.includeShift)
     }
 

@@ -31,16 +31,29 @@ final class HyperkeyManager: NSObject {
 
     // MARK: - Public API
 
-    /// Starts the Hyperkey tap if settings.enabled. No-op otherwise.
-    /// - Returns: `false` if Accessibility permission is missing or the tap could not be created.
+    /// Starts the Hyperkey tap if `settings.enabled`. When the trigger is Caps
+    /// Lock (the default) this also applies a system-wide HID-level remap so
+    /// Caps Lock produces F18 keyDown/keyUp events we can actually state-machine.
+    /// - Returns: `false` if Input Monitoring permission is missing or the tap
+    ///   could not be created.
     @discardableResult
     func start() -> Bool {
         stateLock.lock()
         let shouldRun = settings.enabled
+        let needsHIDRemap = shouldRun && settings.remappedKeyCode == capsLockKeyCode
         stateLock.unlock()
         guard shouldRun else { return true }
 
         if eventTap != nil { return true }
+
+        // Apply HID remap BEFORE installing the tap so the first F18 event hits
+        // our tap with no race window.
+        if needsHIDRemap {
+            let applied = HyperkeyHIDRemapper.enable()
+            debugLogger?(.hotkey, applied
+                ? "HID remap applied (Caps Lock → F18, system-wide)."
+                : "HID remap FAILED — Hyperkey may be unreliable until macOS restart.")
+        }
 
         let thread = HyperkeyMonitorThread()
         thread.name = "LeVoice Hyperkey Monitor"
@@ -52,23 +65,57 @@ final class HyperkeyManager: NSObject {
 
         guard request.succeeded else {
             perform(#selector(uninstallEventTapAndStopRunLoop), on: thread, with: nil, waitUntilDone: true)
-            debugLogger?(.hotkey, "Hyperkey failed to start — Accessibility permission missing.")
+            if needsHIDRemap { HyperkeyHIDRemapper.disable() }
+            debugLogger?(.hotkey, "Hyperkey failed to start — Input Monitoring permission missing.")
             return false
         }
 
         tapThread = thread
-        debugLogger?(.hotkey, "Hyperkey tap started (remap=\(settings.remappedKeyCode), quickPress=\(settings.quickPressKeyCode), includeShift=\(settings.includeShift)).")
+        debugLogger?(.hotkey, "Hyperkey tap started (listeningKey=\(listeningKeyCode), quickPress=\(settings.quickPressKeyCode), includeShift=\(settings.includeShift)).")
         return true
     }
 
     func stop() {
-        guard let thread = tapThread else { return }
-        perform(#selector(uninstallEventTapAndStopRunLoop), on: thread, with: nil, waitUntilDone: true)
+        if let thread = tapThread {
+            perform(#selector(uninstallEventTapAndStopRunLoop), on: thread, with: nil, waitUntilDone: true)
+        }
         tapThread = nil
         stateLock.lock()
         state = State()
         stateLock.unlock()
-        debugLogger?(.hotkey, "Hyperkey tap stopped.")
+        // Always clear the HID remap on stop, even if the tap wasn't actually
+        // running — guarantees Caps Lock returns to default whenever Hyperkey is off.
+        HyperkeyHIDRemapper.disable()
+        debugLogger?(.hotkey, "Hyperkey tap stopped, HID remap cleared.")
+    }
+
+    /// The virtual keyCode our tap listens for, given the current settings.
+    /// When Caps Lock is the trigger, `hidutil` has already rewritten the
+    /// physical Caps key to F18 at the HID layer, so we listen for F18.
+    var listeningKeyCode: UInt16 {
+        if settings.remappedKeyCode == capsLockKeyCode {
+            return HyperkeyHIDRemapper.f18VirtualKeyCode
+        }
+        return settings.remappedKeyCode
+    }
+
+    /// Carbon `kVK_ANSI_CapsLock`.
+    private let capsLockKeyCode: UInt16 = 57
+
+    /// Keys that shouldn't count as "user pressed another key while Hyperkey
+    /// was held" when detecting quick tap. Pressing Shift alone during a hold
+    /// shouldn't cancel the quick-tap synthesis — the user didn't actually
+    /// invoke a hyper-modified shortcut.
+    ///
+    /// Internal (not private) so tests can cover the predicate directly without
+    /// synthesising a full CGEvent stream.
+    func isModifierKeyCode(_ code: UInt16) -> Bool {
+        // 54 rcmd, 55 lcmd, 56 lshift, 58 lopt, 59 lctrl, 60 rshift, 61 ropt,
+        // 62 rctrl, 63 fn, 57 caps (already swallowed but belt-and-braces).
+        switch code {
+        case 54, 55, 56, 57, 58, 59, 60, 61, 62, 63: return true
+        default: return false
+        }
     }
 
     /// Applies new settings. Starts/stops the tap as needed.
@@ -101,9 +148,12 @@ final class HyperkeyManager: NSObject {
         var local = state
         stateLock.unlock()
 
-        let remappedCode = current.remappedKeyCode
+        // After HID remap (Caps → F18), we listen for F18 keyDown/keyUp pairs.
+        // For non-Caps trigger keys (F13-F16) we listen for those keyCodes
+        // directly. Fall-through flagsChanged path remains for safety.
+        let triggerCode = listeningKeyCode
         let eventCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let isRemappedKey = (eventCode == remappedCode)
+        let isRemappedKey = (eventCode == triggerCode)
 
         // ── Trigger key: press or release ──────────────────────────────────────
         if isRemappedKey {
@@ -144,10 +194,16 @@ final class HyperkeyManager: NSObject {
 
         // ── While held: inject hyper modifiers into other keystrokes ───────────
         if local.isHeld && (type == .keyDown || type == .keyUp) {
-            local.keyPressedWhileHeld = true
-            stateLock.lock()
-            state = local
-            stateLock.unlock()
+            // Only count non-modifier keys as "a key was pressed during the hold".
+            // Pressing Shift alone during a hold (to prepare for Hyper+Shift+X)
+            // shouldn't cancel the quick-tap path if the user then releases
+            // without actually firing a non-modifier key.
+            if !isModifierKeyCode(eventCode) {
+                local.keyPressedWhileHeld = true
+                stateLock.lock()
+                state = local
+                stateLock.unlock()
+            }
 
             var flags = event.flags
             flags.insert(.maskCommand)

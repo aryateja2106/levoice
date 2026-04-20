@@ -16,6 +16,11 @@ struct MenuBarView: View {
                 appState.showDebugLog()
             }
 
+            Button("Show Shortcuts...") {
+                appState.toggleShortcutPalette()
+            }
+            .keyboardShortcut("/", modifiers: [.command, .option, .control])
+
             if appState.meetingTranscriptEnabled {
                 Divider()
 

@@ -474,7 +474,14 @@ class AppState: ObservableObject {
             errorMessage = nil
             debugLogStore.record(category: .hotkey, message: "Hotkey monitor is ready.")
             hyperkeyManager.debugLogger = debugLogStore.record
-            hyperkeyManager.start()
+            if hyperkeySettings.enabled {
+                hyperkeyManager.start()
+            } else {
+                // A previous session may have crashed with the HID remap active.
+                // Clear it now so Caps Lock returns to default on this launch.
+                HyperkeyHIDRemapper.disable()
+            }
+            startShortcutPaletteTrigger()
         } else {
             PermissionChecker.promptAccessibility()
             errorMessage = "Accessibility access required — grant permission then click Retry"
@@ -821,6 +828,13 @@ class AppState: ObservableObject {
     private let promptEditorController = PromptEditorController()
     private let cleanupTranscriptWindowController = CleanupTranscriptWindowController()
     private let debugLogWindowController = DebugLogWindowController()
+    private let shortcutPaletteController = ShortcutPaletteController()
+    private let shortcutPaletteTrigger = ShortcutPaletteTrigger()
+
+    /// Set by LeVoiceApp after construction. Settings → General reads this for
+    /// the Updates card. Optional because AppState is initialized before the
+    /// Sparkle controller is built (LazyUpdaterController defers it to first use).
+    weak var sparkleUpdater: AnyObject?
     private lazy var meetingTranscriptWindowController: MeetingTranscriptWindowController = {
         let controller = MeetingTranscriptWindowController()
         controller.shouldFloatWhileRecording = { [weak self] in
@@ -865,6 +879,26 @@ class AppState: ObservableObject {
 
     func showDebugLog() {
         debugLogWindowController.show(debugLogStore: debugLogStore)
+    }
+
+    func showShortcutPalette() {
+        shortcutPaletteController.show()
+    }
+
+    func toggleShortcutPalette() {
+        shortcutPaletteController.toggle()
+    }
+
+    /// Starts listening for the global palette hotkey. Safe to call multiple times.
+    func startShortcutPaletteTrigger() {
+        shortcutPaletteTrigger.onTrigger = { [weak self] in
+            Task { @MainActor in self?.toggleShortcutPalette() }
+        }
+        shortcutPaletteTrigger.start()
+        debugLogStore.record(
+            category: .hotkey,
+            message: "Shortcut palette trigger listening on ⌃⌥⌘/."
+        )
     }
 
     // MARK: - Meeting Transcript
@@ -1293,6 +1327,10 @@ class AppState: ObservableObject {
         if let session = activeMeetingSession {
             Task { await session.stop() }
         }
+        // Restore Caps Lock to default behaviour. hyperkeyManager.stop() calls
+        // HyperkeyHIDRemapper.disable() unconditionally — safe even if start failed.
+        hyperkeyManager.stop()
+        shortcutPaletteTrigger.stop()
     }
 
     func acquirePipeline(for owner: PipelineOwner) -> Bool {

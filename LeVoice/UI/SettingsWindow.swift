@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import CoreAudio
 import ServiceManagement
+import Sparkle
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
@@ -1484,7 +1485,92 @@ struct SettingsView: View {
     }
 
     private var generalSection: some View {
-        SettingsCard("General") {
+        VStack(alignment: .leading, spacing: 16) {
+            updatesCard
+            keyboardShortcutsCard
+            startupCard
+        }
+    }
+
+    private var updatesCard: some View {
+        SettingsCard("Updates") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Current Version")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(appVersionString)
+                            .font(.title3.weight(.semibold))
+                    }
+                    Spacer()
+                    Button {
+                        sparkleController?.checkForUpdates()
+                    } label: {
+                        Label("Check Now", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(sparkleController == nil)
+                }
+                Divider()
+                Toggle(
+                    "Automatically check for updates",
+                    isOn: Binding(
+                        get: { sparkleController?.automaticallyChecksForUpdates ?? false },
+                        set: { sparkleController?.automaticallyChecksForUpdates = $0 }
+                    )
+                )
+                .disabled(sparkleController == nil)
+                Toggle(
+                    "Automatically download and install updates",
+                    isOn: Binding(
+                        get: { sparkleController?.automaticallyDownloadsUpdates ?? false },
+                        set: { sparkleController?.automaticallyDownloadsUpdates = $0 }
+                    )
+                )
+                .disabled(sparkleController == nil)
+                if sparkleController == nil {
+                    Text("Update server not configured. Updates can be installed manually from the GitHub releases page.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var keyboardShortcutsCard: some View {
+        SettingsCard("Keyboard Shortcuts (Global)") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("These shortcuts work in any app, anywhere on your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ShortcutRecorderView(
+                    title: "Hold to Record",
+                    chord: appState.pushToTalkChord,
+                    onRecordingStateChange: appState.setShortcutCaptureActive
+                ) { chord in
+                    appState.updateShortcut(chord, for: .pushToTalk)
+                }
+
+                ShortcutRecorderView(
+                    title: "Toggle Recording",
+                    chord: appState.toggleToTalkChord,
+                    onRecordingStateChange: appState.setShortcutCaptureActive
+                ) { chord in
+                    appState.updateShortcut(chord, for: .toggleToTalk)
+                }
+
+                if let shortcutErrorMessage = appState.shortcutErrorMessage {
+                    Text(shortcutErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private var startupCard: some View {
+        SettingsCard("Startup") {
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, enabled in
                     do {
@@ -1497,6 +1583,46 @@ struct SettingsView: View {
                         launchAtLogin = !enabled
                     }
                 }
+        }
+    }
+
+    private var appVersionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    private var sparkleController: SPUUpdater? {
+        appState.sparkleUpdater as? SPUUpdater
+    }
+}
+
+private struct StaticShortcutRow: View {
+    let title: String
+    let chord: String
+    var note: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(chord)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.secondary.opacity(0.12))
+                    )
+            }
+            if let note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

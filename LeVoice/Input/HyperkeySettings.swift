@@ -17,7 +17,12 @@ struct HyperkeySettings: Codable, Equatable {
     static let `default` = HyperkeySettings(
         enabled: false,
         remappedKeyCode: 57,
-        quickPressKeyCode: 53,
+        // 57 = Caps Lock pass-through. On quick tap, we synthesise a real Caps
+        // Lock event so the OS toggles caps state and the indicator LED lights
+        // as users expect. Matches Knollsoft Hyperkey's default behaviour.
+        // Earlier default (53 = Escape) surprised users because Caps Lock lost
+        // its normal toggle role.
+        quickPressKeyCode: 57,
         includeShift: true
     )
 
